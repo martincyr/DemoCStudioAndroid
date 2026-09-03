@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Demo AgentSDK</string>
+    <string name="sdk_initialization_failed">The Agents Client SDK could not be initialized.</string>
+</resources>
