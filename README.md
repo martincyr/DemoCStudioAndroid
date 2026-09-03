@@ -16,7 +16,12 @@ starts interactive authentication with:
 AgentsClientSDK.signIn(this)
 ```
 
-If MSAL already has an account, the SDK attempts to acquire a token silently.
+Use the **Sign out** button to create a separate single-account MSAL
+client with the same configuration as the Agents Client SDK and sign out its
+current account. This removes the app's cached MSAL account and tokens, resets
+the displayed conversation, and reinitializes the SDK. It does not clear
+Microsoft identity cookies outside the app.
+
 After authentication succeeds, the Agents Client SDK establishes the agent
 connection and the app sends its message.
 

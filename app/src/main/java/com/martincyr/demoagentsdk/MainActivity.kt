@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Card
@@ -39,19 +40,29 @@ import com.microsoft.agents.client.android.models.ChatMessage
 import com.microsoft.agents.client.android.models.MessageResponse
 import com.microsoft.agents.client.android.sdks.ClientSDK
 import com.microsoft.agents.client.android.services.auth.IAuthenticationUI
+import com.microsoft.identity.client.IPublicClientApplication
+import com.microsoft.identity.client.ISingleAccountPublicClientApplication
+import com.microsoft.identity.client.PublicClientApplication
+import com.microsoft.identity.client.exception.MsalException
+import java.io.File
 
 class MainActivity : AppCompatActivity(), IAuthenticationUI {
-    private var agentsClientSdk: ClientSDK? = null
+    private var agentsClientSdk by mutableStateOf<ClientSDK?>(null)
     private var initializationError by mutableStateOf<String?>(null)
     private var authenticationError by mutableStateOf<String?>(null)
+    private var isAuthenticationEnabled by mutableStateOf(false)
+    private var isClearingTokenCache by mutableStateOf(false)
     private var isSignInRequired by mutableStateOf(false)
     private var isSignInLoading by mutableStateOf(false)
     private var hasStartedInteractiveSignIn = false
+    private lateinit var appSettings: AppSettings
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        initializeAgentsClient()
+        appSettings = loadAppSettings(this)
+        isAuthenticationEnabled = appSettings.user.isAuthEnabled
+        initializeAgentsClient(appSettings)
 
         setContent {
             DemoAgentSDKTheme {
@@ -60,9 +71,12 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                         agentsClientSdk = agentsClientSdk,
                         initializationError = initializationError,
                         authenticationError = authenticationError,
+                        isAuthenticationEnabled = isAuthenticationEnabled,
+                        isClearingTokenCache = isClearingTokenCache,
                         isSignInRequired = isSignInRequired,
                         isSignInLoading = isSignInLoading,
                         onSignIn = ::startSignIn,
+                        onClearTokenCache = ::clearTokenCache,
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -70,11 +84,80 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         }
     }
 
-    private fun initializeAgentsClient() {
+    private fun clearTokenCache() {
+        authenticationError = null
+        isClearingTokenCache = true
+        PublicClientApplication.createSingleAccountPublicClientApplication(
+            this,
+            createAuthConfigFile(appSettings),
+            object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
+                override fun onCreated(application: ISingleAccountPublicClientApplication) {
+                    application.signOut(
+                        object : ISingleAccountPublicClientApplication.SignOutCallback {
+                            override fun onSignOut() {
+                                runOnUiThread {
+                                    agentsClientSdk = null
+                                    hasStartedInteractiveSignIn = false
+                                    isClearingTokenCache = false
+                                    isSignInRequired = false
+                                    initializeAgentsClient(appSettings)
+                                }
+                            }
+
+                            override fun onError(exception: MsalException) {
+                                showTokenCacheError(exception)
+                            }
+                        }
+                    )
+                }
+
+                override fun onError(exception: MsalException) {
+                    showTokenCacheError(exception)
+                }
+            }
+        )
+    }
+
+    private fun initializeAgentsClient(appSettings: AppSettings) {
         try {
-            agentsClientSdk = AgentsClientSDK.initSDK(this, loadAppSettings(this))
+            agentsClientSdk = AgentsClientSDK.initSDK(this, appSettings)
         } catch (error: SDKError) {
-            initializationError = error.message ?: getString(R.string.sdk_initialization_failed)
+            initializationError = error.message
+        }
+    }
+
+    private fun showTokenCacheError(exception: MsalException) {
+        runOnUiThread {
+            isClearingTokenCache = false
+            authenticationError = exception.localizedMessage
+                ?.let { "Failed to clear the MSAL token cache. $it" }
+                ?: "Failed to clear the MSAL token cache."
+        }
+    }
+
+    private fun createAuthConfigFile(appSettings: AppSettings): File {
+        val auth = appSettings.user.auth
+        val tenantId = auth.tenantId.ifBlank { "common" }
+        val config: Map<String, Any> = mapOf(
+            "client_id" to auth.clientId,
+            "authorization_user_agent" to "WEBVIEW",
+            "redirect_uri" to auth.redirectUri,
+            "account_mode" to "SINGLE",
+            "broker_redirect_uri_registered" to true,
+            "authorities" to listOf(
+                mapOf(
+                    "type" to "AAD",
+                    "authority_url" to "https://login.microsoftonline.com/$tenantId",
+                    "audience" to mapOf(
+                        "type" to "AzureADandPersonalMicrosoftAccount",
+                        "tenant_id" to tenantId
+                    )
+                )
+            )
+        )
+
+        return File(cacheDir, AUTH_CONFIG_FILE_NAME).apply {
+            writeText(Gson().toJson(config))
         }
     }
 
@@ -141,12 +224,16 @@ fun WhoAmIResponse(
     agentsClientSdk: ClientSDK?,
     initializationError: String?,
     authenticationError: String?,
+    isAuthenticationEnabled: Boolean,
+    isClearingTokenCache: Boolean,
     isSignInRequired: Boolean,
     isSignInLoading: Boolean,
     onSignIn: () -> Unit,
+    onClearTokenCache: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var promptSent by remember(agentsClientSdk) { mutableStateOf(false) }
+    var connectionReady by remember(agentsClientSdk) { mutableStateOf(false) }
     var incomingActivities by remember {
         mutableStateOf(emptyList<ChatMessage>())
     }
@@ -156,6 +243,9 @@ fun WhoAmIResponse(
         agentsClientSdk?.liveData?.collect { response ->
             when (response) {
                 MessageResponse.ConnectionReady -> {
+                    connectionReady = true
+                    incomingActivities = emptyList()
+                    agentError = null
                     if (!promptSent) {
                         promptSent = true
                         agentsClientSdk.sendMessage(WHO_AM_I_PROMPT)
@@ -164,14 +254,16 @@ fun WhoAmIResponse(
 
                 is MessageResponse.Success<*> -> {
                     val message = response.value as? ChatMessage
-                    if (message != null) {
+                    if (connectionReady && message != null) {
                         incomingActivities = incomingActivities + message
                     }
                 }
 
                 is MessageResponse.Failure<*> -> {
                     val message = response.value as? ChatMessage
-                    if (message != null) {
+                    if (!connectionReady) {
+                        Unit
+                    } else if (message != null) {
                         incomingActivities = incomingActivities + message
                     } else {
                         agentError = "The agent could not answer the request."
@@ -198,10 +290,30 @@ fun WhoAmIResponse(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Who am I?",
-                style = MaterialTheme.typography.headlineSmall
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Who am I?",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+
+                if (isAuthenticationEnabled) {
+                    Button(
+                        onClick = onClearTokenCache,
+                        enabled = !isClearingTokenCache
+                    ) {
+                        Text(
+                            if (isClearingTokenCache) {
+                                "Signing out..."
+                            } else {
+                                "Sign out"
+                            }
+                        )
+                    }
+                }
+            }
 
             when {
                 initializationError != null -> Text(
@@ -250,6 +362,7 @@ fun WhoAmIResponse(
                     Text("Waiting for the Copilot Studio agent...")
                 }
             }
+
         }
     }
 }
@@ -294,12 +407,16 @@ fun WhoAmIResponsePreview() {
             agentsClientSdk = null,
             initializationError = "Configure the Copilot Studio agent to load a response.",
             authenticationError = null,
+            isAuthenticationEnabled = true,
+            isClearingTokenCache = false,
             isSignInRequired = false,
             isSignInLoading = false,
-            onSignIn = {}
+            onSignIn = {},
+            onClearTokenCache = {}
         )
     }
 }
 
 private const val WHO_AM_I_PROMPT = "Who am I?"
 private const val LOCAL_APP_SETTINGS_RESOURCE = "appsettings_local"
+private const val AUTH_CONFIG_FILE_NAME = "auth_config_temp.json"
