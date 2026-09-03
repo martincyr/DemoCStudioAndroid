@@ -66,6 +66,55 @@ The client ID is for a public client application; do not place client secrets,
 passwords, or other confidential credentials in Android resources. Resource
 files are packaged into the APK.
 
+## Copilot Studio connector consent bypass
+
+When an agent uses a connector on behalf of a user for the first time, Copilot
+Studio normally displays a connector consent card. An administrator can
+configure a specific agent to bypass these cards through the Power Platform
+API. This is an agent-level administrative setting; the Android app does not
+need to fabricate or send a `connectors/consentCard` invoke activity.
+
+See the official Microsoft documentation:
+[Bypass connector consent cards for an agent](https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-connector-consent-bypass).
+
+The documented setup requires:
+
+- A single-tenant Microsoft Entra public client application.
+- The delegated Power Platform API permission
+  `CopilotStudio.AdminActions.Invoke`.
+- A signed-in administrator with the **Power Platform Administrator**,
+  **AI Administrator**, or **Global Administrator** role. Power Platform
+  Administrator is the least-privileged option in this list.
+- The environment ID and agent ID from the agent's Copilot Studio URL.
+- Microsoft's `ConsentBypass-CopilotStudio.ps1` script from the linked
+  documentation.
+
+After loading the script and running `Connect-CopilotStudioAdmin`, inspect the
+current setting with:
+
+```powershell
+Get-AdminCopilotStudioBotConnectorConsentBypass `
+    -EnvironmentId "YOUR_ENVIRONMENT_ID" `
+    -BotId "YOUR_AGENT_ID"
+```
+
+Enable consent bypass with:
+
+```powershell
+Set-AdminCopilotStudioBotConnectorConsentBypass `
+    -EnvironmentId "YOUR_ENVIRONMENT_ID" `
+    -BotId "YOUR_AGENT_ID" `
+    -BypassConsent $true
+```
+
+Restore the normal consent-card behavior by running the same command with
+`-BypassConsent $false`. Read the setting again afterward to verify the change.
+
+Consent bypass applies only to agents powered by the Copilot Studio standard
+harness. It does not apply to the GitHub Copilot harness. Review the security
+and governance implications before enabling it because users will no longer be
+shown the normal connector consent card for that agent.
+
 ## Run
 
 1. Create `appsettings_local.json` and fill in the required values.
