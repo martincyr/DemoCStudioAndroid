@@ -3,29 +3,33 @@ package com.martincyr.demoagentsdk
 import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.martincyr.demoagentsdk.ui.theme.DemoAgentSDKTheme
 import com.google.gson.Gson
 import com.microsoft.agents.client.android.AgentsClientSDK
@@ -36,7 +40,7 @@ import com.microsoft.agents.client.android.models.MessageResponse
 import com.microsoft.agents.client.android.sdks.ClientSDK
 import com.microsoft.agents.client.android.services.auth.IAuthenticationUI
 
-class MainActivity : ComponentActivity(), IAuthenticationUI {
+class MainActivity : AppCompatActivity(), IAuthenticationUI {
     private var agentsClientSdk: ClientSDK? = null
     private var initializationError by mutableStateOf<String?>(null)
     private var authenticationError by mutableStateOf<String?>(null)
@@ -142,40 +146,46 @@ fun WhoAmIResponse(
     onSignIn: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val messageResponse by (agentsClientSdk?.liveData?.collectAsState()
-        ?: remember { mutableStateOf(MessageResponse.Initial) })
     var promptSent by remember(agentsClientSdk) { mutableStateOf(false) }
-    var responseText by remember { mutableStateOf<String?>(null) }
+    var incomingActivities by remember {
+        mutableStateOf(emptyList<ChatMessage>())
+    }
     var agentError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(messageResponse, agentsClientSdk) {
-        when (val response = messageResponse) {
-            MessageResponse.ConnectionReady -> {
-                if (!promptSent && agentsClientSdk != null) {
-                    promptSent = true
-                    agentsClientSdk.sendMessage(WHO_AM_I_PROMPT)
+    LaunchedEffect(agentsClientSdk) {
+        agentsClientSdk?.liveData?.collect { response ->
+            when (response) {
+                MessageResponse.ConnectionReady -> {
+                    if (!promptSent) {
+                        promptSent = true
+                        agentsClientSdk.sendMessage(WHO_AM_I_PROMPT)
+                    }
                 }
-            }
 
-            is MessageResponse.Success<*> -> {
-                val message = response.value as? ChatMessage
-                if (message?.role == AGENT_ROLE) {
-                    responseText = message.text
+                is MessageResponse.Success<*> -> {
+                    val message = response.value as? ChatMessage
+                    if (message != null) {
+                        incomingActivities = incomingActivities + message
+                    }
                 }
-            }
 
-            is MessageResponse.Failure<*> -> {
-                val message = response.value as? ChatMessage
-                agentError = message?.text ?: "The agent could not answer the request."
-            }
+                is MessageResponse.Failure<*> -> {
+                    val message = response.value as? ChatMessage
+                    if (message != null) {
+                        incomingActivities = incomingActivities + message
+                    } else {
+                        agentError = "The agent could not answer the request."
+                    }
+                }
 
-            is MessageResponse.Error -> {
-                agentError = response.exception.message ?: "The request failed."
-            }
+                is MessageResponse.Error -> {
+                    agentError = response.exception.message ?: "The request failed."
+                }
 
-            MessageResponse.Initial,
-            MessageResponse.Loading,
-            is MessageResponse.Typing<*> -> Unit
+                MessageResponse.Initial,
+                MessageResponse.Loading,
+                is MessageResponse.Typing<*> -> Unit
+            }
         }
     }
 
@@ -221,16 +231,57 @@ fun WhoAmIResponse(
                     color = MaterialTheme.colorScheme.error
                 )
 
-                responseText != null -> Text(
-                    text = responseText.orEmpty(),
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                incomingActivities.isNotEmpty() -> LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 600.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(incomingActivities) { index, activity ->
+                        IncomingActivity(activity)
+                        if (index < incomingActivities.lastIndex) {
+                            HorizontalDivider()
+                        }
+                    }
+                }
 
                 else -> {
                     CircularProgressIndicator()
                     Text("Waiting for the Copilot Studio agent...")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun IncomingActivity(activity: ChatMessage) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = activity.role.replaceFirstChar { it.uppercase() },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        if (activity.text.isNotBlank()) {
+            Text(
+                text = activity.text,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        activity.customView?.let { customView ->
+            AndroidView(
+                factory = { customView },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (activity.text.isBlank() && activity.customView == null) {
+            Text(
+                text = "Activity contained no displayable content.",
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
@@ -251,5 +302,4 @@ fun WhoAmIResponsePreview() {
 }
 
 private const val WHO_AM_I_PROMPT = "Who am I?"
-private const val AGENT_ROLE = "bot"
 private const val LOCAL_APP_SETTINGS_RESOURCE = "appsettings_local"
