@@ -117,6 +117,9 @@ shown the normal connector consent card for that agent.
 
 ## Run
 
+The app requires Android 8.0 (API 26) or later. Its Speech and Adaptive Cards
+dependencies support 16 KB memory page sizes on 64-bit devices.
+
 1. Create `appsettings_local.json` and fill in the required values.
 2. Publish the agent in Copilot Studio.
 3. Build and run the app from Android Studio.

@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.martincyr.demoagentsdk"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
@@ -60,7 +60,7 @@ dependencies {
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("com.microsoft.identity.client:msal:8.4.1")
-    implementation("com.microsoft.cognitiveservices.speech:client-sdk:1.41.1")
+    implementation("com.microsoft.cognitiveservices.speech:client-sdk:1.44.0")
     implementation("com.google.code.gson:gson:2.8.9")
-    implementation("io.adaptivecards:adaptivecards-android:3.6.1")
+    implementation("io.adaptivecards:adaptivecards-android:3.7.8")
 }
