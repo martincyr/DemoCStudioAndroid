@@ -16,3 +16,5 @@
 .cxx
 local.properties
 /app/src/main/res/raw/appsettings_local.json
+node_modules/
+/app/src/main/assets/webchat/

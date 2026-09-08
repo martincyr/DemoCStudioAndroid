@@ -1,0 +1,123 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  min-height: 100%;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 12px;
+  gap: 8px;
+}
+
+#status {
+  font-size: 13px;
+  opacity: 0.75;
+  flex: 0 0 auto;
+}
+
+#status.error {
+  color: #b3261e;
+  opacity: 1;
+}
+
+#transcript {
+  flex: 1 1 auto;
+  /* Without an explicit min-height a flex item refuses to shrink below its content,
+     and overflow scrolling never engages. */
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#composer {
+  flex: 0 0 auto;
+}
+
+.message {
+  padding: 10px 12px;
+  border-radius: 12px;
+  max-width: 85%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+  flex: 0 0 auto;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: #0f6cbd;
+  color: #fff;
+}
+
+.message.agent {
+  align-self: flex-start;
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.message .role {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.suggested-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.suggested-actions button {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+#composer {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+#composer-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+}
+
+#composer-send {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #0f6cbd;
+  color: #fff;
+  font-size: 15px;
+}
+
+#composer-send:disabled,
+#composer-input:disabled {
+  opacity: 0.5;
+}

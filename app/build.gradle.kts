@@ -3,6 +3,34 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val webChatDir = rootProject.layout.projectDirectory.dir("webchat")
+val webChatAssetsDir = layout.projectDirectory.dir("src/main/assets/webchat")
+val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+val npmExecutable = if (isWindows) "npm.cmd" else "npm"
+
+val installWebChat = tasks.register<Exec>("installWebChat") {
+    description = "Installs the Copilot Studio WebChat npm dependencies."
+    workingDir = webChatDir.asFile
+    commandLine(npmExecutable, "install", "--no-audit", "--no-fund")
+    inputs.file(webChatDir.file("package.json"))
+    outputs.dir(webChatDir.dir("node_modules"))
+}
+
+val buildWebChat = tasks.register<Exec>("buildWebChat") {
+    description = "Bundles the Copilot Studio WebChat assets into src/main/assets/webchat."
+    dependsOn(installWebChat)
+    workingDir = webChatDir.asFile
+    commandLine(npmExecutable, "run", "build")
+    inputs.dir(webChatDir.dir("src"))
+    inputs.file(webChatDir.file("build.mjs"))
+    inputs.file(webChatDir.file("package.json"))
+    outputs.dir(webChatAssetsDir)
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildWebChat)
+}
+
 android {
     namespace = "com.martincyr.demoagentsdk"
     compileSdk {
@@ -56,6 +84,7 @@ dependencies {
 
     implementation(files("libs/AgentsClientSDK.jar"))
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")

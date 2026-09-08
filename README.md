@@ -1,29 +1,103 @@
 # Demo AgentSDK
 
-This Android sample connects to a Microsoft Copilot Studio agent through the
-Microsoft Agents Client SDK. After authentication and connection, the app sends
-the message `Who am I?` and displays the agent's response. When authentication
-and the agent connection are successful, the response should contain
-information about the currently authenticated user.
+This Android sample connects to a Microsoft Copilot Studio agent and offers two
+client implementations, selected from a screen shown at launch:
+
+- **Android SDK** — the native Compose experience backed by the Microsoft Agents
+  Client SDK. It sends the message `Who am I?` and displays the agent's
+  response. When authentication and the agent connection are successful, the
+  response should contain information about the currently authenticated user.
+- **Copilot Studio WebChat** — a web bundle built from
+  [`@microsoft/agents-copilotstudio-client`](https://www.npmjs.com/package/@microsoft/agents-copilotstudio-client)
+  and rendered in an Android `WebView`. It provides a free-form chat transcript
+  with a composer and suggested actions.
+
+Use the **< Back** control (or the system back gesture) to return to the
+selection screen. The native SDK is initialized lazily when the Android SDK mode
+is entered and torn down when you go back, so switching modes starts clean.
 
 ## Authentication
 
-Authentication is provided by the Microsoft Authentication Library (MSAL).
-`MainActivity` implements the SDK's `IAuthenticationUI` callbacks and explicitly
-starts interactive authentication with:
+Both modes authenticate natively with the Microsoft Authentication Library
+(MSAL); no MSAL.js redirect flow runs inside the `WebView`.
+
+For the **Android SDK** mode, `MainActivity` implements the SDK's
+`IAuthenticationUI` callbacks and explicitly starts interactive authentication
+with:
 
 ```kotlin
 AgentsClientSDK.signIn(this)
 ```
 
-Use the **Sign out** button to create a separate single-account MSAL
-client with the same configuration as the Agents Client SDK and sign out its
-current account. This removes the app's cached MSAL account and tokens, resets
-the displayed conversation, and reinitializes the SDK. It does not clear
-Microsoft identity cookies outside the app.
+For the **WebChat** mode, `CopilotStudioTokenProvider` acquires an access token
+for the `https://api.powerplatform.com/.default` scope using a single-account
+MSAL client (silent first, falling back to interactive). The token is handed to
+the page over a JavaScript bridge, and the page can request a fresh token at any
+time when the current one expires.
+
+Both paths share the same generated MSAL configuration via `AuthConfigFactory`,
+so they use one client ID, tenant, and redirect URI.
+
+Use the **Sign out** button in the Android SDK mode to create a separate
+single-account MSAL client with the same configuration as the Agents Client SDK
+and sign out its current account. This removes the app's cached MSAL account and
+tokens, resets the displayed conversation, and reinitializes the SDK. It does
+not clear Microsoft identity cookies outside the app.
 
 After authentication succeeds, the Agents Client SDK establishes the agent
 connection and the app sends its message.
+
+## WebChat bundle
+
+The web client lives in `webchat/` as a small TypeScript project bundled with
+esbuild:
+
+```text
+webchat/
+  build.mjs        esbuild bundling script
+  package.json
+  src/bridge.ts    JavaScript <-> Kotlin bridge contract
+  src/index.ts     Copilot Studio client wiring and transcript rendering
+  src/index.html
+  src/styles.css
+```
+
+The build emits `bundle.js`, `index.html`, and `styles.css` into
+`app/src/main/assets/webchat/`, which the `WebView` loads from
+`file:///android_asset/webchat/index.html`. Generated assets and
+`node_modules/` are excluded by `.gitignore`.
+
+Gradle runs the bundle automatically: the `buildWebChat` task (which depends on
+`installWebChat`) is a dependency of `preBuild`, so a normal `assemble` keeps the
+assets in sync. Both tasks declare inputs and outputs, so they are skipped when
+nothing changed. On Windows the tasks invoke `npm.cmd`. Node.js and npm must be
+on the `PATH`.
+
+You can also build the bundle manually:
+
+```powershell
+cd webchat
+npm install
+npm run build      # bundle into app/src/main/assets/webchat
+npm run typecheck  # type-check without emitting
+```
+
+### Bridge contract
+
+The `WebView` and the host activity communicate through a narrow, explicit
+contract defined in `webchat/src/bridge.ts` and `WebChatScreen.kt`:
+
+| Direction     | Call                                   | Purpose                                        |
+| ------------- | -------------------------------------- | ---------------------------------------------- |
+| Kotlin -> JS  | `window.__androidHost.onConfig(config)` | Delivers `environmentId`, `schemaName`, `environment` |
+| Kotlin -> JS  | `window.__androidHost.onToken(token)`   | Delivers a freshly acquired access token       |
+| Kotlin -> JS  | `window.__androidHost.onTokenError(msg)`| Reports a failed token acquisition             |
+| JS -> Kotlin  | `AndroidBridge.requestToken()`          | Requests a token (callable repeatedly)         |
+| JS -> Kotlin  | `AndroidBridge.log(message)`            | Forwards a diagnostic message to logcat        |
+| JS -> Kotlin  | `AndroidBridge.onError(message)`        | Surfaces an error in the Compose UI            |
+
+Adaptive Cards in the WebChat mode are handled by the web renderer, not by the
+Android Adaptive Cards library used in the native mode.
 
 ## Configure the Copilot Studio agent
 
@@ -123,11 +197,14 @@ shown the normal connector consent card for that agent.
 ## Run
 
 The app requires Android 8.0 (API 26) or later. Its Speech and Adaptive Cards
-dependencies support 16 KB memory page sizes on 64-bit devices.
+dependencies support 16 KB memory page sizes on 64-bit devices. Building also
+requires Node.js and npm on the `PATH` for the WebChat bundle.
 
 1. Create `appsettings_local.json` and fill in the required values.
 2. Publish the agent in Copilot Studio.
-3. Build and run the app from Android Studio.
-4. Complete the Microsoft sign-in prompt.
-5. Confirm that the app displays information about the currently authenticated
+3. Build and run the app from Android Studio. The WebChat bundle is built
+   automatically as part of the Gradle build.
+4. Pick **Android SDK** or **Copilot Studio WebChat** on the selection screen.
+5. Complete the Microsoft sign-in prompt.
+6. Confirm that the app displays information about the currently authenticated
    user.

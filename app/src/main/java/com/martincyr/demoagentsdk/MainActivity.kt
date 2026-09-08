@@ -3,11 +3,13 @@ package com.martincyr.demoagentsdk
 import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -21,6 +23,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -55,33 +58,81 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
     private var isSignInRequired by mutableStateOf(false)
     private var isSignInLoading by mutableStateOf(false)
     private var hasStartedInteractiveSignIn = false
+    private var currentScreen by mutableStateOf(AppScreen.Selection)
     private lateinit var appSettings: AppSettings
+    private val tokenProvider by lazy { CopilotStudioTokenProvider(this, appSettings) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appSettings = loadAppSettings(this)
         isAuthenticationEnabled = appSettings.user.isAuthEnabled
-        initializeAgentsClient(appSettings)
 
         setContent {
             DemoAgentSDKTheme {
                 Scaffold { innerPadding ->
-                    WhoAmIResponse(
-                        agentsClientSdk = agentsClientSdk,
-                        initializationError = initializationError,
-                        authenticationError = authenticationError,
-                        isAuthenticationEnabled = isAuthenticationEnabled,
-                        isClearingTokenCache = isClearingTokenCache,
-                        isSignInRequired = isSignInRequired,
-                        isSignInLoading = isSignInLoading,
-                        onSignIn = ::startSignIn,
-                        onClearTokenCache = ::clearTokenCache,
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    val contentModifier = Modifier.padding(innerPadding)
+                    when (currentScreen) {
+                        AppScreen.Selection -> ModeSelectionScreen(
+                            onSelectAndroidSdk = ::enterAndroidSdkMode,
+                            onSelectWebChat = ::enterWebChatMode,
+                            onSignOut = ::clearTokenCache,
+                            isSigningOut = isClearingTokenCache,
+                            modifier = contentModifier
+                        )
+
+                        AppScreen.AndroidSdk -> ScreenWithBack(
+                            onBack = ::returnToSelection,
+                            modifier = contentModifier
+                        ) {
+                            WhoAmIResponse(
+                                agentsClientSdk = agentsClientSdk,
+                                initializationError = initializationError,
+                                authenticationError = authenticationError,
+                                isAuthenticationEnabled = isAuthenticationEnabled,
+                                isClearingTokenCache = isClearingTokenCache,
+                                isSignInRequired = isSignInRequired,
+                                isSignInLoading = isSignInLoading,
+                                onSignIn = ::startSignIn,
+                                onClearTokenCache = ::clearTokenCache
+                            )
+                        }
+
+                        AppScreen.WebChat -> ScreenWithBack(
+                            onBack = ::returnToSelection,
+                            modifier = contentModifier
+                        ) {
+                            WebChatScreen(
+                                appSettings = appSettings,
+                                tokenProvider = tokenProvider
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private fun enterAndroidSdkMode() {
+        currentScreen = AppScreen.AndroidSdk
+        if (agentsClientSdk == null) {
+            initializationError = null
+            initializeAgentsClient(appSettings)
+        }
+    }
+
+    private fun enterWebChatMode() {
+        currentScreen = AppScreen.WebChat
+    }
+
+    private fun returnToSelection() {
+        currentScreen = AppScreen.Selection
+        agentsClientSdk = null
+        initializationError = null
+        authenticationError = null
+        isSignInRequired = false
+        isSignInLoading = false
+        hasStartedInteractiveSignIn = false
     }
 
     private fun clearTokenCache() {
@@ -103,7 +154,6 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                                     initializeAgentsClient(appSettings)
                                 }
                             }
-
                             override fun onError(exception: MsalException) {
                                 showTokenCacheError(exception)
                             }
@@ -135,31 +185,8 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         }
     }
 
-    private fun createAuthConfigFile(appSettings: AppSettings): File {
-        val auth = appSettings.user.auth
-        val tenantId = auth.tenantId.ifBlank { "common" }
-        val config: Map<String, Any> = mapOf(
-            "client_id" to auth.clientId,
-            "authorization_user_agent" to "WEBVIEW",
-            "redirect_uri" to auth.redirectUri,
-            "account_mode" to "SINGLE",
-            "broker_redirect_uri_registered" to true,
-            "authorities" to listOf(
-                mapOf(
-                    "type" to "AAD",
-                    "authority_url" to "https://login.microsoftonline.com/$tenantId",
-                    "audience" to mapOf(
-                        "type" to "AzureADandPersonalMicrosoftAccount",
-                        "tenant_id" to tenantId
-                    )
-                )
-            )
-        )
-
-        return File(cacheDir, AUTH_CONFIG_FILE_NAME).apply {
-            writeText(Gson().toJson(config))
-        }
-    }
+    private fun createAuthConfigFile(appSettings: AppSettings): File =
+        AuthConfigFactory.createAuthConfigFile(this, appSettings)
 
     private fun startSignIn() {
         authenticationError = null
@@ -171,6 +198,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
 
     override fun showSignInContent() {
         runOnUiThread {
+            if (currentScreen != AppScreen.AndroidSdk) return@runOnUiThread
             isSignInLoading = false
             isSignInRequired = true
             if (!hasStartedInteractiveSignIn) {
@@ -216,6 +244,96 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
             .bufferedReader()
             .use { it.readText() }
         return Gson().fromJson(json, AppSettings::class.java)
+    }
+}
+
+@Composable
+fun ModeSelectionScreen(
+    onSelectAndroidSdk: () -> Unit,
+    onSelectWebChat: () -> Unit,
+    onSignOut: () -> Unit,
+    isSigningOut: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Button(
+                onClick = onSignOut,
+                enabled = !isSigningOut
+            ) {
+                Text(if (isSigningOut) "Signing out..." else "Sign out")
+            }
+        }
+
+        Text(
+            text = "Choose a client",
+            style = MaterialTheme.typography.headlineSmall
+        )
+
+        ModeCard(
+            title = "Android SDK",
+            description = "Native Compose experience backed by the Agents Client SDK for Android.",
+            buttonLabel = "Use Android SDK",
+            onClick = onSelectAndroidSdk
+        )
+
+        ModeCard(
+            title = "Copilot Studio WebChat",
+            description = "Web bundle using @microsoft/agents-copilotstudio-client rendered in a " +
+                "WebView. The access token is acquired natively with MSAL and passed to the page.",
+            buttonLabel = "Use WebChat",
+            onClick = onSelectWebChat
+        )
+    }
+}
+
+@Composable
+private fun ModeCard(
+    title: String,
+    description: String,
+    buttonLabel: String,
+    onClick: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(text = title, style = MaterialTheme.typography.titleLarge)
+            Text(text = description, style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = onClick) {
+                Text(buttonLabel)
+            }
+        }
+    }
+}
+
+@Composable
+fun ScreenWithBack(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    BackHandler(onBack = onBack)
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            TextButton(onClick = onBack) {
+                Text("< Back")
+            }
+        }
+        content()
     }
 }
 
@@ -419,4 +537,3 @@ fun WhoAmIResponsePreview() {
 
 private const val WHO_AM_I_PROMPT = "Who am I?"
 private const val LOCAL_APP_SETTINGS_RESOURCE = "appsettings_local"
-private const val AUTH_CONFIG_FILE_NAME = "auth_config_temp.json"
