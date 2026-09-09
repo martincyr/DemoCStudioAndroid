@@ -19,7 +19,7 @@ object AuthConfigFactory {
             "authorization_user_agent" to "WEBVIEW",
             "redirect_uri" to auth.redirectUri,
             "account_mode" to "SINGLE",
-            "broker_redirect_uri_registered" to true,
+            "broker_redirect_uri_registered" to false,
             "authorities" to listOf(
                 mapOf(
                     "type" to "AAD",

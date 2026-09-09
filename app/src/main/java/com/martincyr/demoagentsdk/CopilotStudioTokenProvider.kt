@@ -12,6 +12,7 @@ import com.microsoft.identity.client.PublicClientApplication
 import com.microsoft.identity.client.SignInParameters
 import com.microsoft.identity.client.SilentAuthenticationCallback
 import com.microsoft.identity.client.exception.MsalException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Acquires Copilot Studio access tokens natively with MSAL so the WebView never has to run
@@ -61,18 +62,27 @@ class CopilotStudioTokenProvider(
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
+        val dispatched = AtomicBoolean(false)
+        fun dispatchOnce(account: IAccount?) {
+            if (dispatched.compareAndSet(false, true)) {
+                dispatch(app, account, onSuccess, onError)
+            }
+        }
+
         app.getCurrentAccountAsync(
             object : ISingleAccountPublicClientApplication.CurrentAccountCallback {
                 override fun onAccountLoaded(activeAccount: IAccount?) {
-                    dispatch(app, activeAccount, onSuccess, onError)
+                    dispatchOnce(activeAccount)
                 }
 
                 override fun onAccountChanged(priorAccount: IAccount?, currentAccount: IAccount?) {
-                    dispatch(app, currentAccount, onSuccess, onError)
+                    dispatchOnce(currentAccount)
                 }
 
                 override fun onError(exception: MsalException) {
-                    onError(exception.describe())
+                    if (dispatched.compareAndSet(false, true)) {
+                        onError(exception.describe())
+                    }
                 }
             }
         )
@@ -99,7 +109,7 @@ class CopilotStudioTokenProvider(
     ) {
         val parameters = AcquireTokenSilentParameters.Builder()
             .forAccount(account)
-            .fromAuthority(account.authority ?: authority)
+            .fromAuthority(account.authority)
             .withScopes(SCOPES)
             .withCallback(object : SilentAuthenticationCallback {
                 override fun onSuccess(authenticationResult: IAuthenticationResult) {

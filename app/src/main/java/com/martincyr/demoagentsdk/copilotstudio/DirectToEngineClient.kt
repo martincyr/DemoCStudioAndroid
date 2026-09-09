@@ -6,7 +6,7 @@ import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonElement
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -55,12 +55,21 @@ class DirectToEngineClient(
         body = CopilotStudioJson.encodeToString(StartConversationRequest())
     )
 
-    fun sendMessage(text: String): Flow<Activity> {
+    fun sendMessage(text: String): Flow<Activity> = executeTurn(
+        Activity(type = ActivityTypes.MESSAGE, text = text)
+    )
+
+    /**
+     * Sends an Adaptive Card submission. Card data travels in `value` rather than `text`, which is
+     * how the agent distinguishes a card response from typed input.
+     */
+    fun sendCardResponse(value: JsonElement): Flow<Activity> = executeTurn(
+        Activity(type = ActivityTypes.MESSAGE, value = value)
+    )
+
+    private fun executeTurn(activity: Activity): Flow<Activity> {
         val id = checkNotNull(conversationId) { "The conversation has not been started yet." }
-        val request = ExecuteTurnRequest(
-            activity = Activity(type = ActivityTypes.MESSAGE, text = text),
-            conversationId = id
-        )
+        val request = ExecuteTurnRequest(activity = activity, conversationId = id)
         return stream(
             url = connection.conversationUrl(id),
             body = CopilotStudioJson.encodeToString(request)
@@ -96,7 +105,7 @@ class DirectToEngineClient(
             if (!response.isSuccessful) throw response.toException()
             response.header(HEADER_CONVERSATION_ID)?.let(::rememberConversationId)
 
-            val responseBody = response.body ?: return
+            val responseBody = response.body
             val contentType = response.header("Content-Type").orEmpty()
 
             if (!contentType.contains("text/event-stream", ignoreCase = true)) {
@@ -128,42 +137,61 @@ class DirectToEngineClient(
         output: SendChannel<Activity>
     ) {
         var failure: Throwable? = null
+        var closedIntentionally = false
 
-        EventSources.processResponse(
-            response,
-            object : EventSourceListener() {
-                override fun onEvent(
-                    eventSource: EventSource,
-                    id: String?,
-                    type: String?,
-                    data: String
-                ) {
-                    when {
-                        type.equals(EVENT_END, ignoreCase = true) -> eventSource.cancel()
-
-                        type.equals(EVENT_ACTIVITY, ignoreCase = true) && data.isNotBlank() -> {
-                            val activity = try {
-                                CopilotStudioJson.decodeFromString(Activity.serializer(), data)
-                            } catch (error: Exception) {
-                                failure = error
+        try {
+            EventSources.processResponse(
+                response,
+                object : EventSourceListener() {
+                    override fun onEvent(
+                        eventSource: EventSource,
+                        id: String?,
+                        type: String?,
+                        data: String
+                    ) {
+                        when {
+                            type.equals(EVENT_END, ignoreCase = true) -> {
+                                closedIntentionally = true
                                 eventSource.cancel()
-                                return
                             }
-                            if (!publish(activity, output)) eventSource.cancel()
+
+                            type.equals(EVENT_ACTIVITY, ignoreCase = true) && data.isNotBlank() -> {
+                                val activity = try {
+                                    CopilotStudioJson.decodeFromString(Activity.serializer(), data)
+                                } catch (error: Exception) {
+                                    failure = error
+                                    eventSource.cancel()
+                                    return
+                                }
+                                if (!publish(activity, output)) {
+                                    closedIntentionally = true
+                                    eventSource.cancel()
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onFailure(
+                        eventSource: EventSource,
+                        t: Throwable?,
+                        response: Response?
+                    ) {
+                        if (
+                            t != null &&
+                            !closedIntentionally &&
+                            !call.isCanceled() &&
+                            !t.isExpectedSseCancellation()
+                        ) {
+                            failure = t
                         }
                     }
                 }
-
-                override fun onFailure(
-                    eventSource: EventSource,
-                    t: Throwable?,
-                    response: Response?
-                ) {
-                    // Cancelling after `end` is the normal way this stream finishes.
-                    if (t != null && !call.isCanceled()) failure = t
-                }
+            )
+        } catch (error: IOException) {
+            if (!closedIntentionally && !error.isExpectedSseCancellation()) {
+                failure = error
             }
-        )
+        }
 
         failure?.let { throw it }
     }
@@ -188,6 +216,9 @@ class DirectToEngineClient(
         }
         return CopilotStudioException(code, detail)
     }
+
+    private fun Throwable.isExpectedSseCancellation(): Boolean =
+        this is IOException && message.equals("canceled", ignoreCase = true)
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json".toMediaType()

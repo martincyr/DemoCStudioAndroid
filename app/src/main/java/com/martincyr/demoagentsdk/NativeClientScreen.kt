@@ -30,24 +30,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.martincyr.demoagentsdk.copilotstudio.AdaptiveCardView
 import com.martincyr.demoagentsdk.copilotstudio.Attachment
 import com.martincyr.demoagentsdk.copilotstudio.CardAction
 import com.martincyr.demoagentsdk.copilotstudio.ConnectionState
 import com.martincyr.demoagentsdk.copilotstudio.CopilotStudioConnection
 import com.martincyr.demoagentsdk.copilotstudio.DirectToEngineClient
 import com.martincyr.demoagentsdk.copilotstudio.MsalTokenSource
-import com.martincyr.demoagentsdk.copilotstudio.NativeChatState
+import com.martincyr.demoagentsdk.copilotstudio.NativeChatViewModel
 import com.martincyr.demoagentsdk.copilotstudio.PowerPlatformCloud
 import com.martincyr.demoagentsdk.copilotstudio.TranscriptItem
 import com.martincyr.demoagentsdk.ui.theme.DemoAgentSDKTheme
 import com.microsoft.agents.client.android.models.AppSettings
+import dev.jeziellago.compose.markdowntext.MarkdownText
+import kotlinx.serialization.json.JsonElement
 
 /**
  * Chat experience backed by a native Kotlin implementation of the Copilot Studio
@@ -61,25 +64,23 @@ fun NativeClientScreen(
     modifier: Modifier = Modifier
 ) {
     val user = appSettings.user
-    if (user.environmentId.isNullOrBlank() || user.schemaName.isNullOrBlank()) {
+    if (user.environmentId.isBlank() || user.schemaName.isBlank()) {
         ConfigurationMissing(modifier)
         return
     }
 
-    val scope = rememberCoroutineScope()
-    val chat = remember(appSettings, tokenProvider) {
-        val connection = CopilotStudioConnection(
-            environmentId = user.environmentId,
-            schemaName = user.schemaName,
-            cloud = PowerPlatformCloud.fromName(user.environment)
-        )
-        NativeChatState(
-            client = DirectToEngineClient(connection, MsalTokenSource(tokenProvider)),
-            scope = scope
-        )
-    }
+    val chat: NativeChatViewModel = viewModel(
+        factory = NativeChatViewModel.Factory {
+            val connection = CopilotStudioConnection(
+                environmentId = user.environmentId,
+                schemaName = user.schemaName,
+                cloud = PowerPlatformCloud.fromName(user.environment)
+            )
+            DirectToEngineClient(connection, MsalTokenSource(tokenProvider))
+        }
+    )
 
-    LaunchedEffect(chat) { chat.start() }
+    LaunchedEffect(chat) { chat.startIfNeeded() }
 
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -124,7 +125,11 @@ fun NativeClientScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(chat.transcript, key = { it.id }) { item ->
-                    MessageBubble(item = item, onAction = { chat.send(it.submitText) })
+                    MessageBubble(
+                        item = item,
+                        onAction = { chat.send(it.submitText) },
+                        onCardSubmit = chat::submitCard
+                    )
                 }
             }
         }
@@ -207,7 +212,11 @@ private fun StatusRow(status: String) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MessageBubble(item: TranscriptItem, onAction: (CardAction) -> Unit) {
+private fun MessageBubble(
+    item: TranscriptItem,
+    onAction: (CardAction) -> Unit,
+    onCardSubmit: (String, JsonElement) -> Unit
+) {
     val isUser = item.author == TranscriptItem.Author.User
     val alignment = if (isUser) Alignment.End else Alignment.Start
     val containerColor = if (isUser) {
@@ -236,10 +245,27 @@ private fun MessageBubble(item: TranscriptItem, onAction: (CardAction) -> Unit) 
                 )
 
                 if (item.text.isNotBlank()) {
-                    Text(text = item.text, style = MaterialTheme.typography.bodyMedium)
+                    if (item.isMarkdown) {
+                        // Copilot Studio answers are markdown by default, so raw Text would show
+                        // literal ** and link syntax.
+                        MarkdownText(
+                            markdown = item.text,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    } else {
+                        Text(text = item.text, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
 
-                item.attachments.forEach { AttachmentPlaceholder(it) }
+                item.attachments.forEach { attachment ->
+                    if (attachment.isAdaptiveCard) {
+                        AdaptiveCardView(attachment = attachment, onSubmit = onCardSubmit)
+                    } else {
+                        AttachmentPlaceholder(attachment)
+                    }
+                }
 
                 if (item.isStreaming) {
                     Text(
@@ -266,10 +292,7 @@ private fun MessageBubble(item: TranscriptItem, onAction: (CardAction) -> Unit) 
 
 @Composable
 private fun AttachmentPlaceholder(attachment: Attachment) {
-    val label = when {
-        attachment.isAdaptiveCard -> "Adaptive Card (not rendered)"
-        else -> attachment.name ?: attachment.contentType ?: "Attachment"
-    }
+    val label = attachment.name ?: attachment.contentType ?: "Attachment"
     Surface(
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth()
@@ -325,18 +348,20 @@ private fun MessageBubblePreview() {
                     author = TranscriptItem.Author.User,
                     text = "Who am I?"
                 ),
-                onAction = {}
+                onAction = {},
+                onCardSubmit = { _, _ -> }
             )
             MessageBubble(
                 item = TranscriptItem(
                     author = TranscriptItem.Author.Agent,
-                    text = "You are signed in as a demo user.",
+                    text = "You are signed in as a **demo user**.",
                     suggestedActions = listOf(
                         CardAction(title = "Tell me more"),
                         CardAction(title = "Start over")
                     )
                 ),
-                onAction = {}
+                onAction = {},
+                onCardSubmit = { _, _ -> }
             )
         }
     }

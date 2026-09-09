@@ -5,7 +5,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -18,8 +20,13 @@ data class TranscriptItem(
     val text: String,
     val suggestedActions: List<CardAction> = emptyList(),
     val attachments: List<Attachment> = emptyList(),
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    val textFormat: String? = null
 ) {
+    /** Copilot Studio agents usually answer in markdown; plain text is the explicit opt-out. */
+    val isMarkdown: Boolean
+        get() = author == Author.Agent && !textFormat.equals("plain", ignoreCase = true)
+
     enum class Author { User, Agent }
 }
 
@@ -28,13 +35,16 @@ enum class ConnectionState { Idle, Connecting, Ready, Failed }
 /**
  * Drives a Copilot Studio conversation and exposes it as Compose state.
  *
+ * This is a [ViewModel] so the conversation — including the server-side `conversationId` and the
+ * transcript — survives configuration changes. Recreating it on every rotation would abandon the
+ * conversation and start a new one.
+ *
  * The transcript is a snapshot list so partial streaming updates can mutate the last agent entry
  * in place instead of appending a new bubble per chunk.
  */
-class NativeChatState(
-    private val client: DirectToEngineClient,
-    private val scope: CoroutineScope
-) {
+class NativeChatViewModel(
+    private val client: DirectToEngineClient
+) : ViewModel() {
     private val accumulator = StreamAccumulator()
     private var activeJob: Job? = null
     private var streamingItemId: String? = null
@@ -56,6 +66,12 @@ class NativeChatState(
     val canSend: Boolean
         get() = connectionState == ConnectionState.Ready && !isBusy
 
+    /** Safe to call on every recomposition; only the first call actually connects. */
+    fun startIfNeeded() {
+        if (connectionState != ConnectionState.Idle) return
+        start()
+    }
+
     fun start() {
         if (connectionState == ConnectionState.Connecting || activeJob?.isActive == true) return
         transcript.clear()
@@ -74,15 +90,33 @@ class NativeChatState(
         run("Waiting for the agent...") { client.sendMessage(trimmed) }
     }
 
-    fun retry() {
-        errorText = null
-        if (client.conversationId == null) start() else statusText = null
+    /**
+     * Submits an Adaptive Card action. [displayText] is what the user sees echoed in the
+     * transcript, while [value] is the structured payload the agent receives.
+     */
+    fun submitCard(displayText: String, value: kotlinx.serialization.json.JsonElement) {
+        if (!canSend) return
+        transcript += TranscriptItem(
+            author = TranscriptItem.Author.User,
+            text = displayText.ifBlank { "(card submitted)" }
+        )
+        clearSuggestedActions()
+        run("Waiting for the agent...") { client.sendCardResponse(value) }
     }
 
-    fun cancel() {
+    fun retry() {
+        errorText = null
+        if (client.conversationId == null) {
+            connectionState = ConnectionState.Idle
+            start()
+        } else {
+            statusText = null
+        }
+    }
+
+    override fun onCleared() {
         activeJob?.cancel()
         activeJob = null
-        isBusy = false
     }
 
     private fun run(status: String, request: () -> Flow<Activity>) {
@@ -91,7 +125,7 @@ class NativeChatState(
         errorText = null
         streamingItemId = null
 
-        activeJob = scope.launch {
+        activeJob = viewModelScope.launch {
             try {
                 request().collect(::consume)
                 finishStreamingItem()
@@ -132,7 +166,8 @@ class NativeChatState(
                     author = TranscriptItem.Author.Agent,
                     text = text,
                     suggestedActions = actions,
-                    attachments = attachments
+                    attachments = attachments,
+                    textFormat = update.activity.textFormat
                 )
                 if (streamingIndex >= 0) {
                     transcript[streamingIndex] = item.copy(id = transcript[streamingIndex].id)
@@ -177,5 +212,17 @@ class NativeChatState(
         transcript.indices
             .filter { transcript[it].suggestedActions.isNotEmpty() }
             .forEach { transcript[it] = transcript[it].copy(suggestedActions = emptyList()) }
+    }
+
+    /**
+     * The client depends on runtime configuration (app settings and the MSAL provider), so the
+     * view model cannot be constructed reflectively.
+     */
+    class Factory(
+        private val clientProvider: () -> DirectToEngineClient
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            NativeChatViewModel(clientProvider()) as T
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import com.martincyr.demoagentsdk.ui.theme.DemoAgentSDKTheme
 import com.google.gson.Gson
 import com.microsoft.agents.client.android.AgentsClientSDK
@@ -58,7 +64,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
     private var isSignInRequired by mutableStateOf(false)
     private var isSignInLoading by mutableStateOf(false)
     private var hasStartedInteractiveSignIn = false
-    private var currentScreen by mutableStateOf(AppScreen.Selection)
+    private var isAndroidSdkVisible by mutableStateOf(false)
     private lateinit var appSettings: AppSettings
     private val tokenProvider by lazy { CopilotStudioTokenProvider(this, appSettings) }
 
@@ -69,54 +75,85 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         isAuthenticationEnabled = appSettings.user.isAuthEnabled
 
         setContent {
-            DemoAgentSDKTheme {
-                Scaffold { innerPadding ->
-                    val contentModifier = Modifier.padding(innerPadding)
-                    when (currentScreen) {
-                        AppScreen.Selection -> ModeSelectionScreen(
-                            onSelectAndroidSdk = ::enterAndroidSdkMode,
-                            onSelectWebChat = ::enterWebChatMode,
-                            onSelectNativeClient = ::enterNativeClientMode,
-                            onSignOut = ::clearTokenCache,
-                            isSigningOut = isClearingTokenCache,
-                            modifier = contentModifier
-                        )
+            CompositionLocalProvider(
+                LocalNavigationEventDispatcherOwner provides this@MainActivity
+            ) {
+                DemoAgentSDKTheme {
+                    val navController = rememberNavController()
 
-                        AppScreen.AndroidSdk -> ScreenWithBack(
-                            onBack = ::returnToSelection,
-                            modifier = contentModifier
-                        ) {
-                            WhoAmIResponse(
-                                agentsClientSdk = agentsClientSdk,
-                                initializationError = initializationError,
-                                authenticationError = authenticationError,
-                                isAuthenticationEnabled = isAuthenticationEnabled,
-                                isClearingTokenCache = isClearingTokenCache,
-                                isSignInRequired = isSignInRequired,
-                                isSignInLoading = isSignInLoading,
-                                onSignIn = ::startSignIn,
-                                onClearTokenCache = ::clearTokenCache
-                            )
+                    // The Agents SDK screen reports sign-in state through IAuthenticationUI callbacks,
+                    // which need to know whether that screen is still on top.
+                    LaunchedEffect(navController) {
+                        navController.currentBackStackEntryFlow.collect { entry ->
+                            isAndroidSdkVisible =
+                                entry.destination.hasRoute(AppScreen.AndroidSdk::class)
                         }
+                    }
 
-                        AppScreen.WebChat -> ScreenWithBack(
-                            onBack = ::returnToSelection,
-                            modifier = contentModifier
+                    Scaffold { innerPadding ->
+                        val contentModifier = Modifier.padding(innerPadding)
+                        NavHost(
+                            navController = navController,
+                            startDestination = AppScreen.Selection
                         ) {
-                            WebChatScreen(
-                                appSettings = appSettings,
-                                tokenProvider = tokenProvider
-                            )
-                        }
+                            composable<AppScreen.Selection> {
+                                ModeSelectionScreen(
+                                    onSelectAndroidSdk = {
+                                        prepareAndroidSdk()
+                                        navController.navigate(AppScreen.AndroidSdk)
+                                    },
+                                    onSelectWebChat = { navController.navigate(AppScreen.WebChat) },
+                                    onSelectNativeClient = {
+                                        navController.navigate(AppScreen.NativeClient)
+                                    },
+                                    onSignOut = ::clearTokenCache,
+                                    isSigningOut = isClearingTokenCache,
+                                    modifier = contentModifier
+                                )
+                            }
 
-                        AppScreen.NativeClient -> ScreenWithBack(
-                            onBack = ::returnToSelection,
-                            modifier = contentModifier
-                        ) {
-                            NativeClientScreen(
-                                appSettings = appSettings,
-                                tokenProvider = tokenProvider
-                            )
+                            composable<AppScreen.AndroidSdk> {
+                                ScreenWithBack(
+                                    onBack = navController::popBackStack,
+                                    modifier = contentModifier
+                                ) {
+                                    WhoAmIResponse(
+                                        agentsClientSdk = agentsClientSdk,
+                                        initializationError = initializationError,
+                                        authenticationError = authenticationError,
+                                        isAuthenticationEnabled = isAuthenticationEnabled,
+                                        isClearingTokenCache = isClearingTokenCache,
+                                        isSignInRequired = isSignInRequired,
+                                        isSignInLoading = isSignInLoading,
+                                        onSignIn = ::startSignIn,
+                                        onClearTokenCache = ::clearTokenCache
+                                    )
+                                }
+                            }
+
+                            composable<AppScreen.WebChat> {
+                                ScreenWithBack(
+                                    onBack = navController::popBackStack,
+                                    modifier = contentModifier
+                                ) {
+                                    WebChatScreen(
+                                        appSettings = appSettings,
+                                        tokenProvider = tokenProvider
+                                    )
+                                }
+                            }
+
+                            composable<AppScreen.NativeClient> {
+                                ScreenWithBack(
+                                    onBack = navController::popBackStack,
+                                    modifier = contentModifier
+                                ) {
+                                    NativeClientScreen(
+                                        appSettings = appSettings,
+                                        tokenProvider = tokenProvider
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -124,30 +161,11 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         }
     }
 
-    private fun enterAndroidSdkMode() {
-        currentScreen = AppScreen.AndroidSdk
+    private fun prepareAndroidSdk() {
         if (agentsClientSdk == null) {
             initializationError = null
             initializeAgentsClient(appSettings)
         }
-    }
-
-    private fun enterWebChatMode() {
-        currentScreen = AppScreen.WebChat
-    }
-
-    private fun enterNativeClientMode() {
-        currentScreen = AppScreen.NativeClient
-    }
-
-    private fun returnToSelection() {
-        currentScreen = AppScreen.Selection
-        agentsClientSdk = null
-        initializationError = null
-        authenticationError = null
-        isSignInRequired = false
-        isSignInLoading = false
-        hasStartedInteractiveSignIn = false
     }
 
     private fun clearTokenCache() {
@@ -213,7 +231,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
 
     override fun showSignInContent() {
         runOnUiThread {
-            if (currentScreen != AppScreen.AndroidSdk) return@runOnUiThread
+            if (!isAndroidSdkVisible) return@runOnUiThread
             isSignInLoading = false
             isSignInRequired = true
             if (!hasStartedInteractiveSignIn) {
@@ -248,14 +266,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
     }
 
     private fun loadAppSettings(context: Context): AppSettings {
-        val localResourceId = context.resources.getIdentifier(
-            LOCAL_APP_SETTINGS_RESOURCE,
-            "raw",
-            context.packageName
-        )
-        val resourceId = localResourceId.takeIf { it != 0 }
-            ?: R.raw.appsettings
-        val json = context.resources.openRawResource(resourceId)
+        val json = context.resources.openRawResource(R.raw.appsettings_local)
             .bufferedReader()
             .use { it.readText() }
         return Gson().fromJson(json, AppSettings::class.java)
@@ -403,12 +414,12 @@ fun WhoAmIResponse(
 
                 is MessageResponse.Failure<*> -> {
                     val message = response.value as? ChatMessage
-                    if (!connectionReady) {
-                        Unit
-                    } else if (message != null) {
-                        incomingActivities = incomingActivities + message
-                    } else {
-                        agentError = "The agent could not answer the request."
+                    if (connectionReady) {
+                        if (message != null) {
+                            incomingActivities = incomingActivities + message
+                        } else {
+                            agentError = "The agent could not answer the request."
+                        }
                     }
                 }
 
@@ -560,4 +571,3 @@ fun WhoAmIResponsePreview() {
 }
 
 private const val WHO_AM_I_PROMPT = "Who am I?"
-private const val LOCAL_APP_SETTINGS_RESOURCE = "appsettings_local"

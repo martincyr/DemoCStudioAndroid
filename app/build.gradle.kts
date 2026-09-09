@@ -53,6 +53,12 @@ android {
             optimization {
                 enable = false
             }
+            // Not applied while optimization is disabled, but keeps the Adaptive Cards JNI/
+            // reflection rules attached for whenever minification is turned on.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {
@@ -62,11 +68,10 @@ android {
     buildFeatures {
         compose = true
     }
+    buildToolsVersion = "36.0.0"
 }
 
 dependencies {
-    val ktorVersion = "2.3.2"
-
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -75,6 +80,10 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.navigationevent.compose)
+    implementation(libs.compose.markdown)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
@@ -87,13 +96,10 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(files("libs/AgentsClientSDK.jar"))
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.webkit:webkit:1.12.1")
-    implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
-    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-    implementation("com.microsoft.identity.client:msal:8.4.1")
-    implementation("com.microsoft.cognitiveservices.speech:client-sdk:1.44.0")
-    implementation("com.google.code.gson:gson:2.8.9")
-    implementation("io.adaptivecards:adaptivecards-android:3.7.8")
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.webkit)
+    implementation(libs.msal)
+    implementation(libs.speech.sdk)
+    implementation(libs.gson)
+    implementation(libs.adaptivecards.android)
 }
