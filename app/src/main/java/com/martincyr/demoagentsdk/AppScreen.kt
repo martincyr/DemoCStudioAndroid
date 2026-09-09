@@ -3,5 +3,6 @@ package com.martincyr.demoagentsdk
 enum class AppScreen {
     Selection,
     AndroidSdk,
-    WebChat
+    WebChat,
+    NativeClient
 }

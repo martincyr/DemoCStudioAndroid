@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                         AppScreen.Selection -> ModeSelectionScreen(
                             onSelectAndroidSdk = ::enterAndroidSdkMode,
                             onSelectWebChat = ::enterWebChatMode,
+                            onSelectNativeClient = ::enterNativeClientMode,
                             onSignOut = ::clearTokenCache,
                             isSigningOut = isClearingTokenCache,
                             modifier = contentModifier
@@ -107,6 +108,16 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                                 tokenProvider = tokenProvider
                             )
                         }
+
+                        AppScreen.NativeClient -> ScreenWithBack(
+                            onBack = ::returnToSelection,
+                            modifier = contentModifier
+                        ) {
+                            NativeClientScreen(
+                                appSettings = appSettings,
+                                tokenProvider = tokenProvider
+                            )
+                        }
                     }
                 }
             }
@@ -123,6 +134,10 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
 
     private fun enterWebChatMode() {
         currentScreen = AppScreen.WebChat
+    }
+
+    private fun enterNativeClientMode() {
+        currentScreen = AppScreen.NativeClient
     }
 
     private fun returnToSelection() {
@@ -251,6 +266,7 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
 fun ModeSelectionScreen(
     onSelectAndroidSdk: () -> Unit,
     onSelectWebChat: () -> Unit,
+    onSelectNativeClient: () -> Unit,
     onSignOut: () -> Unit,
     isSigningOut: Boolean,
     modifier: Modifier = Modifier
@@ -291,6 +307,14 @@ fun ModeSelectionScreen(
                 "WebView. The access token is acquired natively with MSAL and passed to the page.",
             buttonLabel = "Use WebChat",
             onClick = onSelectWebChat
+        )
+
+        ModeCard(
+            title = "Native Copilot Studio client",
+            description = "Kotlin implementation of the Direct-to-Engine protocol: MSAL tokens, " +
+                "an SSE activity stream parsed with kotlinx.serialization, and native Compose UI.",
+            buttonLabel = "Use native client",
+            onClick = onSelectNativeClient
         )
     }
 }
