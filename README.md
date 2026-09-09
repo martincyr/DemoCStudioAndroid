@@ -1,29 +1,33 @@
 # Demo AgentSDK
 
-This Android sample connects to a Microsoft Copilot Studio agent and offers two
+This Android sample connects to a Microsoft Copilot Studio agent and offers three
 client implementations, selected from a screen shown at launch:
 
-- **Android SDK** — the native Compose experience backed by the Microsoft Agents
-  Client SDK. It sends the message `Who am I?` and displays the agent's
-  response. When authentication and the agent connection are successful, the
-  response should contain information about the currently authenticated user.
+- **Android SDK** — the native Compose experience backed by
+  `AgentsClientSDK.Android`. It sends the message `Who am I?` and displays the
+  agent's response. When authentication and the agent connection are successful,
+  the response should contain information about the currently authenticated user.
 - **Copilot Studio WebChat** — a web bundle built from
   [`@microsoft/agents-copilotstudio-client`](https://www.npmjs.com/package/@microsoft/agents-copilotstudio-client)
   and rendered in an Android `WebView`. It provides a free-form chat transcript
   with a composer and suggested actions.
+- **Native Copilot Studio client** — a Kotlin implementation of the Copilot
+  Studio Direct-to-Engine protocol. It acquires tokens with MSAL, connects over
+  Server-Sent Events (SSE), parses activity payloads with
+  `kotlinx.serialization`, and renders the conversation with Compose.
 
 Use the **< Back** control (or the system back gesture) to return to the
-selection screen. The native SDK is initialized lazily when the Android SDK mode
-is entered and torn down when you go back, so switching modes starts clean.
+selection screen. The Android SDK is initialized lazily when its mode is entered
+and torn down when you go back, so switching modes starts clean.
 
 ## Authentication
 
-Both modes authenticate natively with the Microsoft Authentication Library
+All modes authenticate natively with the Microsoft Authentication Library
 (MSAL); no MSAL.js redirect flow runs inside the `WebView`.
 
-For the **Android SDK** mode, `MainActivity` implements the SDK's
-`IAuthenticationUI` callbacks and explicitly starts interactive authentication
-with:
+For the **Android SDK** mode, `MainActivity` implements
+`AgentsClientSDK.Android`'s `IAuthenticationUI` callbacks and explicitly starts
+interactive authentication with:
 
 ```kotlin
 AgentsClientSDK.signIn(this)
@@ -35,17 +39,23 @@ MSAL client (silent first, falling back to interactive). The token is handed to
 the page over a JavaScript bridge, and the page can request a fresh token at any
 time when the current one expires.
 
-Both paths share the same generated MSAL configuration via `AuthConfigFactory`,
+For the **Native Copilot Studio client** mode, the same
+`CopilotStudioTokenProvider` supplies tokens to the Kotlin Direct-to-Engine
+client. The client uses MSAL-backed authentication, OkHttp for the SSE
+connection, and Compose for the native chat UI.
+
+All paths share the same generated MSAL configuration via `AuthConfigFactory`,
 so they use one client ID, tenant, and redirect URI.
 
-Use the **Sign out** button in the Android SDK mode to create a separate
-single-account MSAL client with the same configuration as the Agents Client SDK
-and sign out its current account. This removes the app's cached MSAL account and
-tokens, resets the displayed conversation, and reinitializes the SDK. It does
-not clear Microsoft identity cookies outside the app.
+Use the **Sign out** button to create a separate single-account MSAL client with
+the same configuration as `AgentsClientSDK.Android` and sign out its current
+account. This removes the app's cached MSAL account and tokens, resets the
+displayed conversation, and reinitializes the Android SDK. It does not clear
+Microsoft identity cookies outside the app.
 
-After authentication succeeds, the Agents Client SDK establishes the agent
-connection and the app sends its message.
+After authentication succeeds, the Android SDK establishes the agent connection
+and the app sends its message. The native Copilot Studio client establishes its
+own Direct-to-Engine SSE connection and sends the conversation message.
 
 ## WebChat bundle
 
@@ -97,7 +107,7 @@ contract defined in `webchat/src/bridge.ts` and `WebChatScreen.kt`:
 | JS -> Kotlin  | `AndroidBridge.onError(message)`        | Surfaces an error in the Compose UI            |
 
 Adaptive Cards in the WebChat mode are handled by the web renderer, not by the
-Android Adaptive Cards library used in the native mode.
+Android Adaptive Cards library used by the native Android modes.
 
 ## Configure the Copilot Studio agent
 
@@ -204,7 +214,8 @@ requires Node.js and npm on the `PATH` for the WebChat bundle.
 2. Publish the agent in Copilot Studio.
 3. Build and run the app from Android Studio. The WebChat bundle is built
    automatically as part of the Gradle build.
-4. Pick **Android SDK** or **Copilot Studio WebChat** on the selection screen.
+4. Pick **Android SDK**, **Copilot Studio WebChat**, or **Native Copilot Studio
+   client** on the selection screen.
 5. Complete the Microsoft sign-in prompt.
 6. Confirm that the app displays information about the currently authenticated
    user.

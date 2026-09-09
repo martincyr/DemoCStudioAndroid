@@ -1,5 +1,10 @@
 package com.martincyr.demoagentsdk
 
+import android.content.Context
+import android.net.Uri
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +26,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -30,12 +37,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.martincyr.demoagentsdk.copilotstudio.AdaptiveCardView
 import com.martincyr.demoagentsdk.copilotstudio.Attachment
@@ -48,9 +58,14 @@ import com.martincyr.demoagentsdk.copilotstudio.NativeChatViewModel
 import com.martincyr.demoagentsdk.copilotstudio.PowerPlatformCloud
 import com.martincyr.demoagentsdk.copilotstudio.TranscriptItem
 import com.martincyr.demoagentsdk.ui.theme.DemoAgentSDKTheme
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.microsoft.agents.client.android.models.AppSettings
 import dev.jeziellago.compose.markdowntext.MarkdownText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
+import java.io.File
 
 /**
  * Chat experience backed by a native Kotlin implementation of the Copilot Studio
@@ -82,7 +97,31 @@ fun NativeClientScreen(
 
     LaunchedEffect(chat) { chat.startIfNeeded() }
 
+    val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
+    var actionError by remember { mutableStateOf<String?>(null) }
+    var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+    val takePicture = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { captured ->
+        val uri = pendingPhotoUri
+        pendingPhotoUri = null
+        if (!captured || uri == null) return@rememberLauncherForActivityResult
+
+        coroutineScope.launch {
+            try {
+                val attachment = withContext(Dispatchers.IO) {
+                    context.imageAttachment(uri)
+                }
+                actionError = null
+                chat.sendMessage(draft, attachment)
+                draft = ""
+            } catch (error: Exception) {
+                actionError = error.message ?: "Could not send the captured photo."
+            }
+        }
+    }
     val listState = rememberLazyListState()
 
     // Keep the newest message visible as the agent streams its answer in.
@@ -95,6 +134,9 @@ fun NativeClientScreen(
     Column(modifier = modifier.fillMaxSize()) {
         chat.errorText?.let { message ->
             ErrorBanner(message = message, onRetry = chat::retry)
+        }
+        actionError?.let { message ->
+            ErrorBanner(message = message, onRetry = { actionError = null })
         }
 
         if (chat.transcript.isEmpty() && chat.connectionState == ConnectionState.Connecting) {
@@ -142,6 +184,35 @@ fun NativeClientScreen(
             value = draft,
             enabled = chat.canSend,
             onValueChange = { draft = it },
+            onTakePicture = {
+                try {
+                    val uri = context.createImageCaptureUri()
+                    actionError = null
+                    pendingPhotoUri = uri
+                    takePicture.launch(uri)
+                } catch (error: IllegalArgumentException) {
+                    actionError = error.message ?: "Could not open the camera."
+                }
+            },
+            onScanBarcode = {
+                GmsBarcodeScanning.getClient(context)
+                    .startScan()
+                    .addOnSuccessListener { barcode ->
+                        val rawValue = barcode.rawValue
+                        if (rawValue.isNullOrBlank()) {
+                            actionError = "The barcode did not contain text."
+                        } else {
+                            actionError = null
+                            draft = draft.withPastedBarcode(rawValue)
+                        }
+                    }
+                    .addOnCanceledListener {
+                        actionError = null
+                    }
+                    .addOnFailureListener { error ->
+                        actionError = error.message ?: "Could not scan the barcode."
+                    }
+            },
             onSend = {
                 chat.send(draft)
                 draft = ""
@@ -310,8 +381,12 @@ private fun Composer(
     value: String,
     enabled: Boolean,
     onValueChange: (String) -> Unit,
+    onTakePicture: () -> Unit,
+    onScanBarcode: () -> Unit,
     onSend: () -> Unit
 ) {
+    var expanded by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -329,14 +404,66 @@ private fun Composer(
             keyboardActions = KeyboardActions(onSend = { onSend() }),
             modifier = Modifier.weight(1f)
         )
-        Button(
-            onClick = onSend,
-            enabled = enabled && value.isNotBlank()
-        ) {
-            Text("Send")
+        Box {
+            Button(
+                onClick = { expanded = true },
+                enabled = enabled
+            ) {
+                Text("Actions")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Send message") },
+                    enabled = value.isNotBlank(),
+                    onClick = {
+                        expanded = false
+                        onSend()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Take photo") },
+                    onClick = {
+                        expanded = false
+                        onTakePicture()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Scan barcode") },
+                    onClick = {
+                        expanded = false
+                        onScanBarcode()
+                    }
+                )
+            }
         }
     }
 }
+
+private fun Context.createImageCaptureUri(): Uri {
+    val directory = File(cacheDir, "captured_images").apply { mkdirs() }
+    val file = File(directory, "agent-photo-${System.currentTimeMillis()}.jpg")
+    return FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+}
+
+private fun Context.imageAttachment(uri: Uri): Attachment {
+    val bytes = checkNotNull(contentResolver.openInputStream(uri)) {
+        "Could not open captured image."
+    }.use { it.readBytes() }
+    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    return Attachment(
+        contentType = IMAGE_JPEG_CONTENT_TYPE,
+        contentUrl = "data:$IMAGE_JPEG_CONTENT_TYPE;base64,$base64",
+        name = "agent-photo.jpg"
+    )
+}
+
+private fun String.withPastedBarcode(barcode: String): String =
+    if (isBlank()) barcode else "$this $barcode"
+
+private const val IMAGE_JPEG_CONTENT_TYPE = "image/jpeg"
 
 @Preview(showBackground = true)
 @Composable

@@ -20,6 +20,7 @@ msal = "8.4.2"
 speechSdk = "1.51.2"
 gson = "2.14.0"
 adaptiveCards = "3.8.6"
+playServicesCodeScanner = "16.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -49,6 +50,7 @@ msal = { group = "com.microsoft.identity.client", name = "msal", version.ref = "
 speech-sdk = { group = "com.microsoft.cognitiveservices.speech", name = "client-sdk", version.ref = "speechSdk" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 adaptivecards-android = { group = "io.adaptivecards", name = "adaptivecards-android", version.ref = "adaptiveCards" }
+play-services-code-scanner = { group = "com.google.android.gms", name = "play-services-code-scanner", version.ref = "playServicesCodeScanner" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

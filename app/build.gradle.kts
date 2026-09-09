@@ -102,4 +102,5 @@ dependencies {
     implementation(libs.speech.sdk)
     implementation(libs.gson)
     implementation(libs.adaptivecards.android)
+    implementation(libs.play.services.code.scanner)
 }

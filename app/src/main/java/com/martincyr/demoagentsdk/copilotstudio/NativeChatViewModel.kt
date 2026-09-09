@@ -90,6 +90,18 @@ class NativeChatViewModel(
         run("Waiting for the agent...") { client.sendMessage(trimmed) }
     }
 
+    fun sendMessage(text: String, attachment: Attachment) {
+        if (!canSend) return
+        val trimmed = text.trim().ifBlank { "Image attached" }
+        transcript += TranscriptItem(
+            author = TranscriptItem.Author.User,
+            text = trimmed,
+            attachments = listOf(attachment)
+        )
+        clearSuggestedActions()
+        run("Sending image to the agent...") { client.sendMessage(trimmed, attachment) }
+    }
+
     /**
      * Submits an Adaptive Card action. [displayText] is what the user sees echoed in the
      * transcript, while [value] is the structured payload the agent receives.
