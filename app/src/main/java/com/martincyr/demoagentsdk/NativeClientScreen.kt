@@ -53,6 +53,8 @@ import com.martincyr.demoagentsdk.copilotstudio.CardAction
 import com.martincyr.demoagentsdk.copilotstudio.ConnectionState
 import com.martincyr.demoagentsdk.copilotstudio.CopilotStudioConnection
 import com.martincyr.demoagentsdk.copilotstudio.DirectToEngineClient
+import com.martincyr.demoagentsdk.copilotstudio.Activity
+import com.martincyr.demoagentsdk.copilotstudio.ActivityTypes
 import com.martincyr.demoagentsdk.copilotstudio.MsalTokenSource
 import com.martincyr.demoagentsdk.copilotstudio.NativeChatViewModel
 import com.martincyr.demoagentsdk.copilotstudio.PowerPlatformCloud
@@ -115,7 +117,13 @@ fun NativeClientScreen(
                     context.imageAttachment(uri)
                 }
                 actionError = null
-                chat.sendMessage(draft, attachment)
+                chat.sendMessages(
+                    Activity(
+                        type = ActivityTypes.MESSAGE,
+                        text = draft,
+                        attachments = listOf(attachment)
+                    )
+                )
                 draft = ""
             } catch (error: Exception) {
                 actionError = error.message ?: "Could not send the captured photo."
@@ -169,8 +177,20 @@ fun NativeClientScreen(
                 items(chat.transcript, key = { it.id }) { item ->
                     MessageBubble(
                         item = item,
-                        onAction = { chat.send(it.submitText) },
-                        onCardSubmit = chat::submitCard
+                        onAction = {
+                            chat.sendMessages(
+                                Activity(type = ActivityTypes.MESSAGE, text = it.submitText)
+                            )
+                        },
+                        onCardSubmit = { displayText, value ->
+                            chat.sendMessages(
+                                Activity(
+                                    type = ActivityTypes.MESSAGE,
+                                    text = displayText,
+                                    value = value
+                                )
+                            )
+                        }
                     )
                 }
             }
@@ -214,7 +234,7 @@ fun NativeClientScreen(
                     }
             },
             onSend = {
-                chat.send(draft)
+                chat.sendMessages(Activity(type = ActivityTypes.MESSAGE, text = draft))
                 draft = ""
             }
         )

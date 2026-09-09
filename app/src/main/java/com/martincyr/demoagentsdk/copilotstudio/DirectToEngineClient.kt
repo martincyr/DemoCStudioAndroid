@@ -55,25 +55,32 @@ class DirectToEngineClient(
         body = CopilotStudioJson.encodeToString(StartConversationRequest())
     )
 
-    fun sendMessage(text: String): Flow<Activity> = executeTurn(
-        Activity(type = ActivityTypes.MESSAGE, text = text)
-    )
-
-    fun sendMessage(text: String, attachment: Attachment): Flow<Activity> = executeTurn(
-        Activity(
-            type = ActivityTypes.MESSAGE,
-            text = text,
-            attachments = listOf(attachment)
-        )
-    )
-
     /**
-     * Sends an Adaptive Card submission. Card data travels in `value` rather than `text`, which is
-     * how the agent distinguishes a card response from typed input.
+     * Sends an outgoing Activity Protocol message. Keeping the complete [Activity] here allows a
+     * caller to send text, value, attachments, suggested actions, or any other protocol fields
+     * without adding transport-specific overloads.
      */
-    fun sendCardResponse(value: JsonElement): Flow<Activity> = executeTurn(
-        Activity(type = ActivityTypes.MESSAGE, value = value)
+    fun sendMessages(activity: Activity): Flow<Activity> = executeTurn(
+        if (activity.type == null) activity.copy(type = ActivityTypes.MESSAGE) else activity
     )
+
+    /** Convenience form for the common text-only message. */
+    fun sendMessages(text: String): Flow<Activity> =
+        sendMessages(Activity(type = ActivityTypes.MESSAGE, text = text))
+
+    /** Convenience form for a text message with one attachment. */
+    fun sendMessages(text: String, attachment: Attachment): Flow<Activity> =
+        sendMessages(
+            Activity(
+                type = ActivityTypes.MESSAGE,
+                text = text,
+                attachments = listOf(attachment)
+            )
+        )
+
+    /** Convenience form for a structured message value, such as an Adaptive Card submission. */
+    fun sendMessages(value: JsonElement): Flow<Activity> =
+        sendMessages(Activity(type = ActivityTypes.MESSAGE, value = value))
 
     private fun executeTurn(activity: Activity): Flow<Activity> {
         val id = checkNotNull(conversationId) { "The conversation has not been started yet." }

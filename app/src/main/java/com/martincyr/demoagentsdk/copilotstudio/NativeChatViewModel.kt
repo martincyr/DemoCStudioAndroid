@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 import java.util.UUID
 
 /** One entry in the transcript. */
@@ -81,39 +82,47 @@ class NativeChatViewModel(
         run("Starting the conversation...") { client.startConversation() }
     }
 
-    fun send(text: String) {
-        val trimmed = text.trim()
-        if (trimmed.isEmpty() || !canSend) return
-        transcript += TranscriptItem(author = TranscriptItem.Author.User, text = trimmed)
-        // Once the user replies, the previous turn's suggestions are stale.
-        clearSuggestedActions()
-        run("Waiting for the agent...") { client.sendMessage(trimmed) }
-    }
-
-    fun sendMessage(text: String, attachment: Attachment) {
+    fun sendMessages(activity: Activity) {
         if (!canSend) return
-        val trimmed = text.trim().ifBlank { "Image attached" }
+        val text = activity.text.orEmpty().trim()
+        val displayText = text.ifBlank {
+            when {
+                activity.attachments.isNotEmpty() -> "Attachment sent"
+                activity.value != null -> "(card submitted)"
+                else -> ""
+            }
+        }
         transcript += TranscriptItem(
             author = TranscriptItem.Author.User,
-            text = trimmed,
-            attachments = listOf(attachment)
+            text = displayText,
+            attachments = activity.attachments,
+            textFormat = activity.textFormat
         )
         clearSuggestedActions()
-        run("Sending image to the agent...") { client.sendMessage(trimmed, attachment) }
+        val status = if (activity.attachments.isNotEmpty()) {
+            "Sending attachment to the agent..."
+        } else {
+            "Waiting for the agent..."
+        }
+        run(status) { client.sendMessages(activity) }
     }
 
-    /**
-     * Submits an Adaptive Card action. [displayText] is what the user sees echoed in the
-     * transcript, while [value] is the structured payload the agent receives.
-     */
-    fun submitCard(displayText: String, value: kotlinx.serialization.json.JsonElement) {
-        if (!canSend) return
-        transcript += TranscriptItem(
-            author = TranscriptItem.Author.User,
-            text = displayText.ifBlank { "(card submitted)" }
+    fun sendMessages(text: String) {
+        sendMessages(Activity(type = ActivityTypes.MESSAGE, text = text))
+    }
+
+    fun sendMessages(text: String, attachment: Attachment) {
+        sendMessages(
+            Activity(
+                type = ActivityTypes.MESSAGE,
+                text = text,
+                attachments = listOf(attachment)
+            )
         )
-        clearSuggestedActions()
-        run("Waiting for the agent...") { client.sendCardResponse(value) }
+    }
+
+    fun sendMessages(value: JsonElement) {
+        sendMessages(Activity(type = ActivityTypes.MESSAGE, value = value))
     }
 
     fun retry() {
