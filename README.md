@@ -16,6 +16,14 @@ client implementations, selected from a screen shown at launch:
   Server-Sent Events (SSE), parses activity payloads with
   `kotlinx.serialization`, and renders the conversation with Compose.
 
+## Client approach comparison
+
+| Approach | Pros | Cons |
+| --- | --- | --- |
+| **Android SDK** | Native Compose experience with SDK-managed agent connectivity, authentication callbacks, streaming activities, and Adaptive Card handling. This can reduce the amount of protocol and transport code the app must maintain. | `AgentsClientSDK.Android` is not officially supported and is distributed here as a prebuilt JAR rather than an openly developed source dependency. The app is limited to the SDK's exposed APIs and must adapt its UI and behavior around SDK decisions. |
+| **Copilot Studio WebChat** | Uses the supported web client, provides a ready-made chat experience with transcript rendering and suggested actions, and can receive WebChat feature updates independently of the Android UI. | Requires an Android `WebView`/`AndroidView` integration, a Kotlin-to-JavaScript bridge, bundled web assets, and coordination between web and native lifecycles. Native Android integration and debugging are less direct. |
+| **Native Copilot Studio client** | Full control over the Activity Protocol, SSE transport, authentication flow, message and attachment handling, Adaptive Cards, error handling, and Compose UI. It avoids a WebView and makes Android behavior and accessibility easier to tailor. | Requires substantially more implementation and maintenance work, including protocol serialization, streaming behavior, rendering, authentication integration, and compatibility updates as Copilot Studio capabilities evolve. |
+
 Use the **< Back** control (or the system back gesture) to return to the
 selection screen. The Android SDK is initialized lazily when its mode is entered
 and torn down when you go back, so switching modes starts clean.

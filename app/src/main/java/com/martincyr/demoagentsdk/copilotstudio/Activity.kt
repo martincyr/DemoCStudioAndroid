@@ -1,5 +1,6 @@
 package com.martincyr.demoagentsdk.copilotstudio
 
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -15,7 +16,7 @@ import kotlinx.serialization.json.intOrNull
  */
 val CopilotStudioJson: Json = Json {
     ignoreUnknownKeys = true
-    encodeDefaults = true
+    encodeDefaults = false
     explicitNulls = false
     isLenient = true
 }
@@ -354,6 +355,7 @@ data class Fact(
 
 @Serializable
 internal data class StartConversationRequest(
+    @EncodeDefault
     val emitStartConversationEvent: Boolean = true,
     val locale: String? = null
 )
