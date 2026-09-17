@@ -22,7 +22,8 @@ data class TranscriptItem(
     val suggestedActions: List<CardAction> = emptyList(),
     val attachments: List<Attachment> = emptyList(),
     val isStreaming: Boolean = false,
-    val textFormat: String? = null
+    val textFormat: String? = null,
+    val activityMarkers: List<ActivityMarker> = emptyList()
 ) {
     /** Copilot Studio agents usually answer in markdown; plain text is the explicit opt-out. */
     val isMarkdown: Boolean
@@ -30,6 +31,12 @@ data class TranscriptItem(
 
     enum class Author { User, Agent }
 }
+
+data class ActivityMarker(
+    val id: String = UUID.randomUUID().toString(),
+    val label: String,
+    val json: String
+)
 
 enum class ConnectionState { Idle, Connecting, Ready, Failed }
 
@@ -169,15 +176,22 @@ class NativeChatViewModel(
 
     private fun consume(activity: Activity) {
         when (val update = accumulator.accept(activity)) {
-            is StreamAccumulator.Update.Informative -> statusText = update.text
+            is StreamAccumulator.Update.Informative -> {
+                statusText = update.text
+                appendActivityMarker(update.activity)
+            }
 
-            is StreamAccumulator.Update.Partial -> upsertStreamingItem(update.text)
+            is StreamAccumulator.Update.Partial -> upsertStreamingItem(update.text, update.activity)
 
             is StreamAccumulator.Update.Complete -> {
                 val text = update.activity.text.orEmpty()
                 val actions = update.activity.suggestedActions?.actions.orEmpty()
                 val attachments = update.activity.attachments
-                if (text.isBlank() && actions.isEmpty() && attachments.isEmpty()) return
+                val marker = update.activity.toMarker()
+                if (text.isBlank() && actions.isEmpty() && attachments.isEmpty()) {
+                    appendActivityMarker(marker)
+                    return
+                }
 
                 // A final message supersedes the text streamed for the same turn.
                 val streamingIndex = streamingItemId?.let { id ->
@@ -188,10 +202,15 @@ class NativeChatViewModel(
                     text = text,
                     suggestedActions = actions,
                     attachments = attachments,
-                    textFormat = update.activity.textFormat
+                    textFormat = update.activity.textFormat,
+                    activityMarkers = listOf(marker)
                 )
                 if (streamingIndex >= 0) {
-                    transcript[streamingIndex] = item.copy(id = transcript[streamingIndex].id)
+                    val current = transcript[streamingIndex]
+                    transcript[streamingIndex] = item.copy(
+                        id = current.id,
+                        activityMarkers = current.activityMarkers + marker
+                    )
                 } else {
                     transcript += item
                 }
@@ -199,25 +218,43 @@ class NativeChatViewModel(
                 statusText = null
             }
 
-            StreamAccumulator.Update.Ignored -> Unit
+            is StreamAccumulator.Update.Ignored -> appendActivityMarker(update.activity)
         }
     }
 
-    private fun upsertStreamingItem(text: String) {
+    private fun upsertStreamingItem(text: String, activity: Activity) {
         statusText = null
+        val marker = activity.toMarker()
         val id = streamingItemId
         val index = id?.let { current -> transcript.indexOfFirst { it.id == current } } ?: -1
         if (index >= 0) {
-            transcript[index] = transcript[index].copy(text = text, isStreaming = true)
+            transcript[index] = transcript[index].copy(
+                text = text,
+                isStreaming = true,
+                activityMarkers = transcript[index].activityMarkers + marker
+            )
         } else {
             val item = TranscriptItem(
                 author = TranscriptItem.Author.Agent,
                 text = text,
-                isStreaming = true
+                isStreaming = true,
+                activityMarkers = listOf(marker)
             )
             transcript += item
             streamingItemId = item.id
         }
+    }
+
+    private fun appendActivityMarker(activity: Activity) {
+        appendActivityMarker(activity.toMarker())
+    }
+
+    private fun appendActivityMarker(marker: ActivityMarker) {
+        transcript += TranscriptItem(
+            author = TranscriptItem.Author.Agent,
+            text = "",
+            activityMarkers = listOf(marker)
+        )
     }
 
     private fun finishStreamingItem() {
@@ -246,4 +283,15 @@ class NativeChatViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             NativeChatViewModel(clientProvider()) as T
     }
+}
+
+private fun Activity.toMarker(): ActivityMarker {
+    val labelParts = listOfNotNull(
+        type?.takeIf { it.isNotBlank() },
+        name?.takeIf { it.isNotBlank() }
+    )
+    return ActivityMarker(
+        label = labelParts.joinToString(": ").ifBlank { "activity" },
+        json = toPrettyJson()
+    )
 }

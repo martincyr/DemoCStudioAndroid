@@ -58,8 +58,8 @@ so they use one client ID, tenant, and redirect URI.
 Use the **Sign out** button to create a separate single-account MSAL client with
 the same configuration as `AgentsClientSDK.Android` and sign out its current
 account. This removes the app's cached MSAL account and tokens, resets the
-displayed conversation, and reinitializes the Android SDK. It does not clear
-Microsoft identity cookies outside the app.
+displayed conversation, and reinitializes the Android SDK only when that screen
+is active. It does not clear Microsoft identity cookies outside the app.
 
 After authentication succeeds, the Android SDK establishes the agent connection
 and the app sends its message. The native Copilot Studio client establishes its

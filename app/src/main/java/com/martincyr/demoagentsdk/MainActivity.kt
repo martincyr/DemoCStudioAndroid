@@ -169,38 +169,56 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
     }
 
     private fun clearTokenCache() {
+        if (isClearingTokenCache) return
         authenticationError = null
         isClearingTokenCache = true
-        PublicClientApplication.createSingleAccountPublicClientApplication(
-            this,
-            createAuthConfigFile(appSettings),
-            object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
-                override fun onCreated(application: ISingleAccountPublicClientApplication) {
-                    application.signOut(
-                        object : ISingleAccountPublicClientApplication.SignOutCallback {
-                            override fun onSignOut() {
-                                runOnUiThread {
-                                    agentsClientSdk = null
-                                    hasStartedInteractiveSignIn = false
-                                    isClearingTokenCache = false
-                                    isSignInRequired = false
-                                    initializeAgentsClient(appSettings)
-                                }
-                            }
-                            override fun onError(exception: MsalException) {
-                                showTokenCacheError(exception)
-                            }
-                        }
-                    )
-                }
 
-                override fun onError(exception: MsalException) {
-                    showTokenCacheError(exception)
+        try {
+            PublicClientApplication.createSingleAccountPublicClientApplication(
+                this,
+                createAuthConfigFile(appSettings),
+                object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
+                    override fun onCreated(application: ISingleAccountPublicClientApplication) {
+                        try {
+                            application.signOut(
+                                object : ISingleAccountPublicClientApplication.SignOutCallback {
+                                    override fun onSignOut() {
+                                        runOnUiThread {
+                                            resetAfterSignOut()
+                                        }
+                                    }
+
+                                    override fun onError(exception: MsalException) {
+                                        showTokenCacheError(exception)
+                                    }
+                                }
+                            )
+                        } catch (error: RuntimeException) {
+                            showTokenCacheError(error)
+                        }
+                    }
+
+                    override fun onError(exception: MsalException) {
+                        showTokenCacheError(exception)
+                    }
                 }
-            }
-        )
+            )
+        } catch (error: RuntimeException) {
+            showTokenCacheError(error)
+        }
     }
 
+    private fun resetAfterSignOut() {
+        agentsClientSdk = null
+        initializationError = null
+        hasStartedInteractiveSignIn = false
+        isClearingTokenCache = false
+        isSignInRequired = false
+        isSignInLoading = false
+        if (isAndroidSdkVisible) {
+            initializeAgentsClient(appSettings)
+        }
+    }
     private fun initializeAgentsClient(appSettings: AppSettings) {
         try {
             agentsClientSdk = AgentsClientSDK.initSDK(this, appSettings)
@@ -209,10 +227,10 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         }
     }
 
-    private fun showTokenCacheError(exception: MsalException) {
+    private fun showTokenCacheError(error: Throwable) {
         runOnUiThread {
             isClearingTokenCache = false
-            authenticationError = exception.localizedMessage
+            authenticationError = error.localizedMessage
                 ?.let { "Failed to clear the MSAL token cache. $it" }
                 ?: "Failed to clear the MSAL token cache."
         }

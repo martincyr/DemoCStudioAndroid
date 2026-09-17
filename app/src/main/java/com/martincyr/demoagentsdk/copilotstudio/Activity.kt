@@ -3,6 +3,7 @@ package com.martincyr.demoagentsdk.copilotstudio
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -19,6 +20,10 @@ val CopilotStudioJson: Json = Json {
     encodeDefaults = false
     explicitNulls = false
     isLenient = true
+}
+
+private val PrettyCopilotStudioJson: Json = Json(CopilotStudioJson) {
+    prettyPrint = true
 }
 
 @Serializable
@@ -64,7 +69,8 @@ data class Activity(
     val reactionsAdded: List<MessageReaction> = emptyList(),
     val reactionsRemoved: List<MessageReaction> = emptyList(),
     val textHighlights: List<TextHighlight> = emptyList(),
-    val label: String? = null
+    val label: String? = null,
+    @Transient val rawJson: String? = null
 ) {
     val isMessage: Boolean get() = type.equals(ActivityTypes.MESSAGE, ignoreCase = true)
     val isTyping: Boolean get() = type.equals(ActivityTypes.TYPING, ignoreCase = true)
@@ -89,6 +95,12 @@ data class Activity(
             )
         }
 }
+
+fun Activity.toPrettyJson(): String =
+    rawJson?.let { raw ->
+        val element = CopilotStudioJson.decodeFromString(JsonElement.serializer(), raw)
+        PrettyCopilotStudioJson.encodeToString(JsonElement.serializer(), element)
+    } ?: PrettyCopilotStudioJson.encodeToString(Activity.serializer(), this)
 
 private const val ENTITY_STREAM_INFO = "streaminfo"
 

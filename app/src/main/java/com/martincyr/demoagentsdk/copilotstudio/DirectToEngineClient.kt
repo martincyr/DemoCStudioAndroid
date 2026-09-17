@@ -172,7 +172,9 @@ class DirectToEngineClient(
 
                             type.equals(EVENT_ACTIVITY, ignoreCase = true) && data.isNotBlank() -> {
                                 val activity = try {
-                                    CopilotStudioJson.decodeFromString(Activity.serializer(), data)
+                                    CopilotStudioJson
+                                        .decodeFromString(Activity.serializer(), data)
+                                        .copy(rawJson = data)
                                 } catch (error: Exception) {
                                     failure = error
                                     eventSource.cancel()

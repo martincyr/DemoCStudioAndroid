@@ -36,7 +36,8 @@ class StreamAccumulatorTest {
         accumulator.accept(typing("Hello ", "s1", StreamTypes.STREAMING, 1))
         val update = accumulator.accept(typing("world", "s1", StreamTypes.STREAMING, 2))
 
-        assertEquals(StreamAccumulator.Update.Partial("s1", "Hello world"), update)
+        assertEquals("s1", (update as StreamAccumulator.Update.Partial).streamId)
+        assertEquals("Hello world", update.text)
     }
 
     @Test
@@ -44,7 +45,8 @@ class StreamAccumulatorTest {
         accumulator.accept(typing("world", "s1", StreamTypes.STREAMING, 2))
         val update = accumulator.accept(typing("Hello ", "s1", StreamTypes.STREAMING, 1))
 
-        assertEquals(StreamAccumulator.Update.Partial("s1", "Hello world"), update)
+        assertEquals("s1", (update as StreamAccumulator.Update.Partial).streamId)
+        assertEquals("Hello world", update.text)
     }
 
     @Test
@@ -53,7 +55,7 @@ class StreamAccumulatorTest {
             typing("Searching documents...", "s1", StreamTypes.INFORMATIVE, 1)
         )
 
-        assertEquals(StreamAccumulator.Update.Informative("Searching documents..."), update)
+        assertEquals("Searching documents...", (update as StreamAccumulator.Update.Informative).text)
     }
 
     @Test
@@ -69,7 +71,7 @@ class StreamAccumulatorTest {
 
     @Test
     fun `bare typing indicators are ignored`() {
-        assertEquals(StreamAccumulator.Update.Ignored, accumulator.accept(typing("")))
+        assertTrue(accumulator.accept(typing("")) is StreamAccumulator.Update.Ignored)
     }
 
     @Test
@@ -78,6 +80,7 @@ class StreamAccumulatorTest {
         accumulator.accept(typing("B1", "b", StreamTypes.STREAMING, 1))
         val update = accumulator.accept(typing("A2", "a", StreamTypes.STREAMING, 2))
 
-        assertEquals(StreamAccumulator.Update.Partial("a", "A1A2"), update)
+        assertEquals("a", (update as StreamAccumulator.Update.Partial).streamId)
+        assertEquals("A1A2", update.text)
     }
 }

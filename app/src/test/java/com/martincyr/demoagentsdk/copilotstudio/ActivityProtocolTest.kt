@@ -43,6 +43,26 @@ class ActivityProtocolTest {
     }
 
     @Test
+    fun `activity pretty json uses raw payload when available`() {
+        val json = """
+            {
+              "type": "event",
+              "name": "handoff",
+              "newFieldFromFuture": true
+            }
+        """.trimIndent()
+
+        val activity = CopilotStudioJson
+            .decodeFromString(Activity.serializer(), json)
+            .copy(rawJson = json)
+        val prettyJson = activity.toPrettyJson()
+
+        assertTrue(prettyJson.contains("\n"))
+        assertTrue(prettyJson.contains("\"type\": \"event\""))
+        assertTrue(prettyJson.contains("\"newFieldFromFuture\": true"))
+    }
+
+    @Test
     fun `attachment preserves structured content`() {
         val attachment = Attachment(
             contentType = Attachment.ADAPTIVE_CARD_CONTENT_TYPE,

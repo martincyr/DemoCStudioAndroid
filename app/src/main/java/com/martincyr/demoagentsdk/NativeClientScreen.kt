@@ -9,18 +9,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.martincyr.demoagentsdk.copilotstudio.AdaptiveCardView
+import com.martincyr.demoagentsdk.copilotstudio.ActivityMarker
 import com.martincyr.demoagentsdk.copilotstudio.Attachment
 import com.martincyr.demoagentsdk.copilotstudio.CardAction
 import com.martincyr.demoagentsdk.copilotstudio.ConnectionState
@@ -102,6 +109,7 @@ fun NativeClientScreen(
     val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
     var actionError by remember { mutableStateOf<String?>(null) }
+    var selectedActivityMarker by remember { mutableStateOf<ActivityMarker?>(null) }
     var pendingPhotoUri by remember { mutableStateOf<Uri?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val takePicture = rememberLauncherForActivityResult(
@@ -190,7 +198,8 @@ fun NativeClientScreen(
                                     value = value
                                 )
                             )
-                        }
+                        },
+                        onActivityJson = { selectedActivityMarker = it }
                     )
                 }
             }
@@ -237,6 +246,13 @@ fun NativeClientScreen(
                 chat.sendMessages(Activity(type = ActivityTypes.MESSAGE, text = draft))
                 draft = ""
             }
+        )
+    }
+
+    selectedActivityMarker?.let { marker ->
+        ActivityJsonDialog(
+            marker = marker,
+            onDismiss = { selectedActivityMarker = null }
         )
     }
 }
@@ -306,7 +322,8 @@ private fun StatusRow(status: String) {
 private fun MessageBubble(
     item: TranscriptItem,
     onAction: (CardAction) -> Unit,
-    onCardSubmit: (String, JsonElement) -> Unit
+    onCardSubmit: (String, JsonElement) -> Unit,
+    onActivityJson: (ActivityMarker) -> Unit
 ) {
     val isUser = item.author == TranscriptItem.Author.User
     val alignment = if (isUser) Alignment.End else Alignment.Start
@@ -334,6 +351,17 @@ private fun MessageBubble(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary
                 )
+
+                if (item.activityMarkers.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        item.activityMarkers.forEach { marker ->
+                            AssistChip(
+                                onClick = { onActivityJson(marker) },
+                                label = { Text(marker.label) }
+                            )
+                        }
+                    }
+                }
 
                 if (item.text.isNotBlank()) {
                     if (item.isMarkdown) {
@@ -379,6 +407,37 @@ private fun MessageBubble(
             }
         }
     }
+}
+
+@Composable
+private fun ActivityJsonDialog(
+    marker: ActivityMarker,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Activity JSON") },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                SelectionContainer {
+                    Text(
+                        text = marker.json,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
@@ -496,7 +555,8 @@ private fun MessageBubblePreview() {
                     text = "Who am I?"
                 ),
                 onAction = {},
-                onCardSubmit = { _, _ -> }
+                onCardSubmit = { _, _ -> },
+                onActivityJson = {}
             )
             MessageBubble(
                 item = TranscriptItem(
@@ -505,10 +565,14 @@ private fun MessageBubblePreview() {
                     suggestedActions = listOf(
                         CardAction(title = "Tell me more"),
                         CardAction(title = "Start over")
+                    ),
+                    activityMarkers = listOf(
+                        ActivityMarker(label = "message", json = "{\n  \"type\": \"message\"\n}")
                     )
                 ),
                 onAction = {},
-                onCardSubmit = { _, _ -> }
+                onCardSubmit = { _, _ -> },
+                onActivityJson = {}
             )
         }
     }
