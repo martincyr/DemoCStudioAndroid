@@ -15,6 +15,10 @@ client implementations, selected from a screen shown at launch:
   Studio Direct-to-Engine protocol. It acquires tokens with MSAL, connects over
   Server-Sent Events (SSE), parses activity payloads with
   `kotlinx.serialization`, and renders the conversation with Compose.
+- **Microsoft Foundry WebChat** — a WebView bundle that calls the Foundry Agent
+  Service project endpoint with a token acquired by native MSAL.
+- **Native Microsoft Foundry client** — a Kotlin threads/runs implementation
+  that sends JSON and consumes the Agent Service SSE stream in Compose.
 
 ## Client approach comparison
 
@@ -147,6 +151,13 @@ Fill in the local copy:
       "redirectUri": "http://localhost"
     }
   },
+  "foundry": {
+    "projectEndpoint": "https://YOUR_FOUNDRY_RESOURCE.services.ai.azure.com/api/projects/YOUR_PROJECT_NAME",
+    "projectName": "YOUR_PROJECT_NAME",
+    "agentId": "YOUR_FOUNDRY_AGENT_ID",
+    "apiVersion": "v1",
+    "scope": "https://ai.azure.com/.default"
+  },
   "speech": {
     "enabled": false,
     "speechSubscriptionKey": "",
@@ -162,6 +173,50 @@ values are not committed.
 The client ID is for a public client application; do not place client secrets,
 passwords, or other confidential credentials in Android resources. Resource
 files are packaged into the APK.
+
+## Configure the Microsoft Foundry agent
+
+The same `appsettings_local.json` file can configure both Copilot Studio and
+Microsoft Foundry. In the new Microsoft Foundry portal, select the target project. The project
+endpoint is shown on the project's **welcome screen** with a copy button. It
+has this form:
+
+```text
+https://<resource>.services.ai.azure.com/api/projects/<project-name>
+```
+
+To find the agent value, choose **Build > Agents**, open the agent, and copy its
+name from the agent details or API/SDK usage panel into `foundry.agentId`.
+If the portal exposes a project name separately, copy it to
+`foundry.projectName`; it is retained for clarity and diagnostics. Use the API
+version required by the new Foundry Agent Service REST contract (the sample
+default is `v1`).
+
+If the endpoint is not shown in the welcome screen, retrieve it from the Azure
+CLI:
+
+```powershell
+az cognitiveservices account project show `
+  --name YOUR_FOUNDRY_RESOURCE `
+  --resource-group YOUR_RESOURCE_GROUP `
+  --project-name YOUR_PROJECT_NAME `
+  --query 'properties.endpoints."AI Foundry API"' --output tsv
+```
+
+The current new-portal documentation is the
+[Foundry resource setup quickstart](https://learn.microsoft.com/en-us/azure/foundry/tutorials/quickstart-create-foundry-resources#get-your-project-connection-details).
+
+The app authenticates with the Entra public-client registration in the shared
+`user.auth` section. In **Microsoft Entra admin center > App registrations**,
+open that registration, add the delegated Microsoft Foundry/Azure AI
+permission required by the project endpoint, grant consent if required, and
+keep its application (client) ID, directory (tenant) ID, and redirect URI in
+the existing `user.auth` fields. `foundry.scope` must match the resource scope
+accepted by the endpoint; the default is `https://ai.azure.com/.default`.
+
+The project endpoint and agent ID identify the Foundry resource and agent; they
+are not secrets. Do not put API keys, client secrets, or connection strings in
+either raw resource file.
 
 ## Copilot Studio connector consent bypass
 
@@ -224,6 +279,7 @@ requires Node.js and npm on the `PATH` for the WebChat bundle.
    automatically as part of the Gradle build.
 4. Pick **Android SDK**, **Copilot Studio WebChat**, or **Native Copilot Studio
    client** on the selection screen.
-5. Complete the Microsoft sign-in prompt.
-6. Confirm that the app displays information about the currently authenticated
-   user.
+5. Pick either Microsoft Foundry mode after configuring the `foundry` section,
+   if you want to exercise the Foundry agent.
+6. Complete the Microsoft sign-in prompt.
+7. Confirm that the selected client connects and displays the agent response.

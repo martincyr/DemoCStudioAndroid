@@ -34,10 +34,17 @@ class CopilotStudioTokenProvider(
             return "https://login.microsoftonline.com/$tenantId"
         }
 
-    fun acquireToken(onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+    fun acquireToken(onSuccess: (String) -> Unit, onError: (String) -> Unit) =
+        acquireToken(DEFAULT_SCOPES, onSuccess, onError)
+
+    fun acquireToken(
+        scopes: List<String> = DEFAULT_SCOPES,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
         val existing = application
         if (existing != null) {
-            resolveAccount(existing, onSuccess, onError)
+            resolveAccount(existing, scopes, onSuccess, onError)
             return
         }
 
@@ -47,7 +54,7 @@ class CopilotStudioTokenProvider(
             object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
                 override fun onCreated(app: ISingleAccountPublicClientApplication) {
                     application = app
-                    resolveAccount(app, onSuccess, onError)
+                    resolveAccount(app, scopes, onSuccess, onError)
                 }
 
                 override fun onError(exception: MsalException) {
@@ -59,13 +66,14 @@ class CopilotStudioTokenProvider(
 
     private fun resolveAccount(
         app: ISingleAccountPublicClientApplication,
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
         val dispatched = AtomicBoolean(false)
         fun dispatchOnce(account: IAccount?) {
             if (dispatched.compareAndSet(false, true)) {
-                dispatch(app, account, onSuccess, onError)
+                dispatch(app, account, scopes, onSuccess, onError)
             }
         }
 
@@ -91,26 +99,28 @@ class CopilotStudioTokenProvider(
     private fun dispatch(
         app: ISingleAccountPublicClientApplication,
         account: IAccount?,
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
         if (account == null) {
-            signIn(app, onSuccess, onError)
+            signIn(app, scopes, onSuccess, onError)
         } else {
-            acquireSilent(app, account, onSuccess, onError)
+            acquireSilent(app, account, scopes, onSuccess, onError)
         }
     }
 
     private fun acquireSilent(
         app: ISingleAccountPublicClientApplication,
         account: IAccount,
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
         val parameters = AcquireTokenSilentParameters.Builder()
             .forAccount(account)
             .fromAuthority(account.authority)
-            .withScopes(SCOPES)
+            .withScopes(scopes)
             .withCallback(object : SilentAuthenticationCallback {
                 override fun onSuccess(authenticationResult: IAuthenticationResult) {
                     onSuccess(authenticationResult.accessToken)
@@ -118,7 +128,7 @@ class CopilotStudioTokenProvider(
 
                 override fun onError(exception: MsalException) {
                     // No cached token covers this scope; re-prompt for the signed-in account.
-                    signInAgain(app, onSuccess, onError)
+                    signInAgain(app, scopes, onSuccess, onError)
                 }
             })
             .build()
@@ -128,26 +138,29 @@ class CopilotStudioTokenProvider(
 
     private fun signIn(
         app: ISingleAccountPublicClientApplication,
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        app.signIn(signInParameters(onSuccess, onError))
+        app.signIn(signInParameters(scopes, onSuccess, onError))
     }
 
     private fun signInAgain(
         app: ISingleAccountPublicClientApplication,
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        app.signInAgain(signInParameters(onSuccess, onError))
+        app.signInAgain(signInParameters(scopes, onSuccess, onError))
     }
 
     private fun signInParameters(
+        scopes: List<String>,
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ): SignInParameters = SignInParameters.builder()
         .withActivity(activity)
-        .withScopes(SCOPES)
+        .withScopes(scopes)
         .withCallback(authCallback(onSuccess, onError))
         .build()
 
@@ -172,6 +185,6 @@ class CopilotStudioTokenProvider(
         localizedMessage ?: message ?: "Failed to acquire a Copilot Studio access token."
 
     private companion object {
-        val SCOPES = listOf("https://api.powerplatform.com/.default")
+        val DEFAULT_SCOPES = listOf("https://api.powerplatform.com/.default")
     }
 }

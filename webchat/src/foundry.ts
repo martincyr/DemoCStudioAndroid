@@ -6,15 +6,8 @@ interface FoundryConfig {
 
 export {};
 
-interface AndroidBridge {
-  requestToken(): void;
-  log(message: string): void;
-  onError(message: string): void;
-}
-
 declare global {
   interface Window {
-    AndroidBridge?: AndroidBridge;
     __foundryHost?: {
       onConfig(config: FoundryConfig): void;
       onToken(token: string): void;
@@ -51,6 +44,16 @@ window.__foundryHost = {
     tokenError = undefined;
   }
 };
+const initialConfig = window.AndroidBridge?.getConfig?.();
+if (initialConfig) {
+  try {
+    window.__foundryHost.onConfig(JSON.parse(initialConfig) as FoundryConfig);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(message, true);
+    window.AndroidBridge?.onError(message);
+  }
+}
 
 function setStatus(value: string, error = false): void {
   statusEl.textContent = value;
@@ -98,7 +101,7 @@ async function start(): Promise<void> {
   try {
     if (!config?.projectEndpoint || !config.agentId) throw new Error('Configure Foundry settings before using this screen.');
     setStatus('Signing in...');
-    const response = await request('threads', {});
+    const response = await request(`agents/${encodeURIComponent(config.agentId)}/endpoint/protocols/openai/conversations`, {});
     const body = await response.json() as { id?: string };
     threadId = body.id;
     if (!threadId) throw new Error('Foundry did not return a thread id.');
@@ -121,10 +124,9 @@ async function send(text: string): Promise<void> {
   sendEl.disabled = true;
   setStatus('Waiting for the agent...');
   try {
-    await request(`threads/${encodeURIComponent(threadId)}/messages`, { role: 'user', content: value });
     const response = await request(
-      `threads/${encodeURIComponent(threadId)}/runs?stream=true`,
-      { assistant_id: config.agentId, stream: true },
+      `agents/${encodeURIComponent(config.agentId)}/endpoint/protocols/openai/responses`,
+      { conversation: threadId, input: [{ role: 'user', content: value }], stream: true },
       true
     );
     const reader = response.body?.getReader();
@@ -141,8 +143,8 @@ async function send(text: string): Promise<void> {
       for (const event of events) {
         const data = event.split('\n').find(line => line.startsWith('data:'))?.slice(5).trim();
         if (!data || data === '[DONE]') continue;
-        const parsed = JSON.parse(data) as { delta?: { text?: string }; text?: string };
-        const delta = parsed.delta?.text ?? parsed.text ?? '';
+        const parsed = JSON.parse(data) as { delta?: string | { text?: string }; text?: string };
+        const delta = typeof parsed.delta === 'string' ? parsed.delta : parsed.delta?.text ?? parsed.text ?? '';
         if (!delta) continue;
         if (!agentItem) agentItem = append('agent', '');
         agentItem.textContent += delta;

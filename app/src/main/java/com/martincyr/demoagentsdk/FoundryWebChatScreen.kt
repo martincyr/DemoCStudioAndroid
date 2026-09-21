@@ -79,6 +79,9 @@ private class FoundryWebBridge(
     private val tokenProvider: CopilotStudioTokenProvider
 ) {
     @JavascriptInterface
+    fun getConfig(): String = Gson().toJson(configuration.foundry)
+
+    @JavascriptInterface
     fun requestToken() {
         webView.post {
             tokenProvider.acquireToken(

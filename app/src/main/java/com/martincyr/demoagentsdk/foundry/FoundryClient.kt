@@ -44,62 +44,61 @@ class FoundryClient(
         .retryOnConnectionFailure(false)
         .build()
 
-    private var threadId: String? = null
+    private var conversationId: String? = null
 
     fun start(): Flow<FoundryEvent> = channelFlow {
         try {
-            createThread(tokenSource(false))
+            createConversation(tokenSource(false))
         } catch (error: FoundryException) {
             if (!error.isAuthFailure) throw error
-            createThread(tokenSource(true))
+            createConversation(tokenSource(true))
         }
-        publish(FoundryEvent("thread.created", null, "{\"thread_id\":\"$threadId\"}"), channel)
+        publish(
+            FoundryEvent("conversation.created", null, "{\"conversation_id\":\"$conversationId\"}"),
+            channel
+        )
     }.flowOn(Dispatchers.IO)
 
     fun send(text: String): Flow<FoundryEvent> = channelFlow {
-        val id = checkNotNull(threadId) { "The Foundry thread has not been started." }
+        val id = checkNotNull(conversationId) { "The Foundry conversation has not been started." }
         val token = tokenSource(false)
         try {
-            postMessage(id, text, token)
-            streamRun(id, token, channel)
+            streamResponse(id, text, token, channel)
         } catch (error: FoundryException) {
             if (!error.isAuthFailure) throw error
-            postMessage(id, text, tokenSource(true))
-            streamRun(id, tokenSource(false), channel)
+            streamResponse(id, text, tokenSource(true), channel)
         }
     }.flowOn(Dispatchers.IO)
 
-    private fun createThread(token: String) {
+    private fun createConversation(token: String) {
         val response = execute(
             Request.Builder()
-                .url(settings.url("threads"))
+                .url(settings.agentUrl("conversations"))
                 .header("Authorization", "Bearer $token")
                 .post("{}".toRequestBody(JSON))
                 .build()
         )
         response.use {
             val body = it.body.string()
-            threadId = Json.parseToJsonElement(body).jsonObject["id"]?.jsonPrimitive?.content
-                ?: throw IOException("Foundry did not return a thread id.")
+            conversationId = Json.parseToJsonElement(body).jsonObject["id"]?.jsonPrimitive?.content
+                ?: throw IOException("Foundry did not return a conversation id.")
         }
     }
 
-    private fun postMessage(thread: String, text: String, token: String) {
-        execute(
-            Request.Builder()
-                .url(settings.url("threads/$thread/messages"))
-                .header("Authorization", "Bearer $token")
-                .post("""{"role":"user","content":${Json.encodeToString(text)}}""".toRequestBody(JSON))
-                .build()
-        ).close()
-    }
-
-    private fun streamRun(thread: String, token: String, output: SendChannel<FoundryEvent>) {
+    private fun streamResponse(
+        conversation: String,
+        text: String,
+        token: String,
+        output: SendChannel<FoundryEvent>
+    ) {
         val request = Request.Builder()
-            .url(settings.url("threads/$thread/runs?stream=true"))
+            .url(settings.agentUrl("responses"))
             .header("Authorization", "Bearer $token")
             .header("Accept", "text/event-stream")
-            .post("""{"assistant_id":"${settings.agentId}","stream":true}""".toRequestBody(JSON))
+            .post(
+                """{"conversation":${Json.encodeToString(conversation)},"input":[{"role":"user","content":${Json.encodeToString(text)}}],"stream":true}"""
+                    .toRequestBody(JSON)
+            )
             .build()
         val call = http.newCall(request)
         call.execute().use { response ->
@@ -145,7 +144,8 @@ class FoundryClient(
     private fun extractText(raw: String): String? {
         val root = runCatching { Json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
             ?: return null
-        return root["delta"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
+        return root["delta"]?.jsonPrimitive?.contentOrNull
+            ?: root["delta"]?.jsonObject?.get("text")?.jsonPrimitive?.contentOrNull
             ?: root["text"]?.jsonPrimitive?.contentOrNull
             ?: root["content"]?.jsonPrimitive?.contentOrNull
     }
@@ -168,6 +168,7 @@ data class FoundryConnection(
         require(agentId.isNotBlank()) { "Foundry agentId is required." }
     }
 
-    fun url(path: String): String =
-        "${projectEndpoint.trimEnd('/')}/$path${if ('?' in path) '&' else '?'}api-version=$apiVersion"
+    fun agentUrl(path: String): String =
+        "${projectEndpoint.trimEnd('/')}/agents/$agentId/endpoint/protocols/openai/$path" +
+            "?api-version=$apiVersion"
 }

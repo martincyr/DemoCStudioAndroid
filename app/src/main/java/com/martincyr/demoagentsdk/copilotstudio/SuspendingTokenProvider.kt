@@ -23,7 +23,8 @@ fun interface TokenSource {
  * MSAL must be driven from the main thread because interactive sign-in needs the Activity.
  */
 class MsalTokenSource(
-    private val provider: CopilotStudioTokenProvider
+    private val provider: CopilotStudioTokenProvider,
+    private val scopes: List<String> = listOf("https://api.powerplatform.com/.default")
 ) : TokenSource {
     private val mutex = Mutex()
     private var cachedToken: String? = null
@@ -35,6 +36,7 @@ class MsalTokenSource(
         val token = withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { continuation ->
                 provider.acquireToken(
+                    scopes = scopes,
                     onSuccess = { token ->
                         if (continuation.isActive) continuation.resume(token)
                     },

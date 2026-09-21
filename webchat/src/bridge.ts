@@ -12,6 +12,7 @@ export interface HostConfig {
 }
 
 export interface AndroidBridge {
+  getConfig(): string;
   requestToken(): void;
   log(message: string): void;
   onError(message: string): void;

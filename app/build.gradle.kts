@@ -6,6 +6,7 @@ plugins {
 
 val webChatDir = rootProject.layout.projectDirectory.dir("webchat")
 val webChatAssetsDir = layout.projectDirectory.dir("src/main/assets/webchat")
+val foundryAssetsDir = layout.projectDirectory.dir("src/main/assets/foundry")
 val isWindows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
 val npmExecutable = if (isWindows) "npm.cmd" else "npm"
 
@@ -26,6 +27,7 @@ val buildWebChat = tasks.register<Exec>("buildWebChat") {
     inputs.file(webChatDir.file("build.mjs"))
     inputs.file(webChatDir.file("package.json"))
     outputs.dir(webChatAssetsDir)
+    outputs.dir(foundryAssetsDir)
 }
 
 tasks.named("preBuild") {

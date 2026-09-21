@@ -1,6 +1,5 @@
 package com.martincyr.demoagentsdk
 
-import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -14,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Card
@@ -41,7 +42,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import com.martincyr.demoagentsdk.ui.theme.DemoAgentSDKTheme
-import com.google.gson.Gson
 import com.microsoft.agents.client.android.AgentsClientSDK
 import com.microsoft.agents.client.android.exceptions.SDKError
 import com.microsoft.agents.client.android.models.AppSettings
@@ -66,12 +66,14 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
     private var hasStartedInteractiveSignIn = false
     private var isAndroidSdkVisible by mutableStateOf(false)
     private lateinit var appSettings: AppSettings
+    private lateinit var appConfiguration: AppConfiguration
     private val tokenProvider by lazy { CopilotStudioTokenProvider(this, appSettings) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        appSettings = loadAppSettings(this)
+        appConfiguration = loadAppConfiguration(this)
+        appSettings = appConfiguration.appSettings
         isAuthenticationEnabled = appSettings.user.isAuthEnabled
 
         setContent {
@@ -105,6 +107,12 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                                     onSelectWebChat = { navController.navigate(AppScreen.WebChat) },
                                     onSelectNativeClient = {
                                         navController.navigate(AppScreen.NativeClient)
+                                    },
+                                    onSelectFoundryWebChat = {
+                                       navController.navigate(AppScreen.FoundryWebChat)
+                                    },
+                                    onSelectFoundryNativeClient = {
+                                       navController.navigate(AppScreen.FoundryNativeClient)
                                     },
                                     onSignOut = ::clearTokenCache,
                                     isSigningOut = isClearingTokenCache,
@@ -152,6 +160,24 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
                                         appSettings = appSettings,
                                         tokenProvider = tokenProvider
                                     )
+                                }
+                            }
+
+                            composable<AppScreen.FoundryWebChat> {
+                                ScreenWithBack(
+                                    onBack = navController::popBackStack,
+                                    modifier = contentModifier
+                                ) {
+                                    FoundryWebChatScreen(appConfiguration, tokenProvider)
+                                }
+                            }
+
+                            composable<AppScreen.FoundryNativeClient> {
+                                ScreenWithBack(
+                                    onBack = navController::popBackStack,
+                                    modifier = contentModifier
+                                ) {
+                                    FoundryNativeScreen(appConfiguration, tokenProvider)
                                 }
                             }
                         }
@@ -283,12 +309,6 @@ class MainActivity : AppCompatActivity(), IAuthenticationUI {
         }
     }
 
-    private fun loadAppSettings(context: Context): AppSettings {
-        val json = context.resources.openRawResource(R.raw.appsettings_local)
-            .bufferedReader()
-            .use { it.readText() }
-        return Gson().fromJson(json, AppSettings::class.java)
-    }
 }
 
 @Composable
@@ -296,6 +316,8 @@ fun ModeSelectionScreen(
     onSelectAndroidSdk: () -> Unit,
     onSelectWebChat: () -> Unit,
     onSelectNativeClient: () -> Unit,
+    onSelectFoundryWebChat: () -> Unit,
+    onSelectFoundryNativeClient: () -> Unit,
     onSignOut: () -> Unit,
     isSigningOut: Boolean,
     modifier: Modifier = Modifier
@@ -303,6 +325,7 @@ fun ModeSelectionScreen(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -328,6 +351,22 @@ fun ModeSelectionScreen(
             description = "Native Compose experience backed by the Agents Client SDK for Android.",
             buttonLabel = "Use Android SDK",
             onClick = onSelectAndroidSdk
+        )
+
+        ModeCard(
+            title = "Microsoft Foundry WebChat",
+            description = "WebView chat using the Foundry Agent Service project endpoint and " +
+                "native MSAL authentication.",
+            buttonLabel = "Use Foundry WebChat",
+            onClick = onSelectFoundryWebChat
+        )
+
+        ModeCard(
+            title = "Native Microsoft Foundry client",
+            description = "Native Compose chat using the Foundry Agent Service threads, runs, " +
+                "JSON, and server-sent events.",
+            buttonLabel = "Use native Foundry client",
+            onClick = onSelectFoundryNativeClient
         )
 
         ModeCard(

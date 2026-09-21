@@ -30,7 +30,7 @@ class FoundryChatViewModel(
         if (job?.isActive == true || isReady.value) return
         run {
             client.start().collect { event ->
-                if (event.eventType == "thread.created") isReady.value = true
+                if (event.eventType == "conversation.created") isReady.value = true
             }
         }
     }

@@ -8,18 +8,19 @@ class FoundryConnectionTest {
     fun `project endpoint builds thread and streaming urls`() {
         val connection = FoundryConnection(
             projectEndpoint = "https://resource.services.ai.azure.com/api/projects/demo",
-            apiVersion = "2025-05-01",
+            apiVersion = "v1",
             agentId = "agent-123"
         )
 
         assertEquals(
-            "https://resource.services.ai.azure.com/api/projects/demo/threads?api-version=2025-05-01",
-            connection.url("threads")
+            "https://resource.services.ai.azure.com/api/projects/demo/agents/agent-123/endpoint/" +
+                "protocols/openai/conversations?api-version=v1",
+            connection.agentUrl("conversations")
         )
         assertEquals(
-            "https://resource.services.ai.azure.com/api/projects/demo/threads/t1/runs" +
-                "?stream=true&api-version=2025-05-01",
-            connection.url("threads/t1/runs?stream=true")
+            "https://resource.services.ai.azure.com/api/projects/demo/agents/agent-123/endpoint/" +
+                "protocols/openai/responses?api-version=v1",
+            connection.agentUrl("responses")
         )
     }
 }

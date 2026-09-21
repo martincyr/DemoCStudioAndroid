@@ -18,4 +18,10 @@ sealed interface AppScreen {
 
     @Serializable
     data object NativeClient : AppScreen
+
+    @Serializable
+    data object FoundryWebChat : AppScreen
+
+    @Serializable
+    data object FoundryNativeClient : AppScreen
 }

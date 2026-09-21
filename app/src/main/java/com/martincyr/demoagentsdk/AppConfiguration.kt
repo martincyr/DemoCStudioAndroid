@@ -10,7 +10,7 @@ data class FoundrySettings(
     val projectEndpoint: String = "",
     val projectName: String = "",
     val agentId: String = "",
-    val apiVersion: String = "2025-05-01",
+    val apiVersion: String = "v1",
     val scope: String = "https://ai.azure.com/.default"
 ) {
     val isConfigured: Boolean
